@@ -11,11 +11,19 @@ import {
 } from '../core/controllers.ts'
 import type { PhysicsStore } from '../core/store.ts'
 import { t } from './i18n.ts'
+import { injectDialogStyles } from './constraint_dialog.ts'
 
 type AnyBB = any
 
 function bbGlobal(name: string): AnyBB {
 	return (globalThis as any)[name] || (globalThis as any).Blockbench?.[name]
+}
+
+// Godot-inspector convention: camelCase property identifiers read as spaced words ("maxSlopeAngle" → "Max Slope Angle")
+function humanize(key: string): string {
+	return key
+		.replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+		.replace(/^./, c => c.toUpperCase())
 }
 
 export interface ControllerDialogCtx {
@@ -27,6 +35,7 @@ export interface ControllerDialogCtx {
 
 export function openControllerDialog(ctx: ControllerDialogCtx): void {
 	const Dialog = bbGlobal('Dialog')
+	injectDialogStyles()
 	const current = sanitizeControllerParams(ctx.kind, ctx.store.getBodyProps(ctx.uuid).controllerParams)
 	const defs: ControllerParamDef[] =
 		ctx.kind === 'character'
@@ -50,27 +59,28 @@ export function openControllerDialog(ctx: ControllerDialogCtx): void {
 	}
 	for (const p of defs) {
 		addSectionHeader(p.section)
+		const label = humanize(p.key)
 		if (Array.isArray(p.def)) {
 			form[p.key] = {
 				type: 'vector',
 				dimensions: 3,
-				label: p.key,
+				label,
 				value: (current[p.key] as number[]).slice()
 			}
 		} else if (typeof p.def === 'boolean') {
-			form[p.key] = { type: 'checkbox', label: p.key, value: current[p.key] === true }
+			form[p.key] = { type: 'checkbox', label, value: current[p.key] === true }
 		} else if (typeof p.def === 'string') {
 			form[p.key] = {
 				type: 'select',
-				label: p.key,
-				options: { None: 'None', Distance: 'Distance', Dihedral: 'Dihedral' },
+				label,
+				options: Object.fromEntries(['None', 'Distance', 'Dihedral'].map(v => [v, t('bend.' + v)])),
 				value: current[p.key] as string
 			}
 		} else {
 			const unit = p.unit === 'm' ? ' (m)' : p.unit === 'deg' ? ' (°)' : ''
 			form[p.key] = {
 				type: 'number',
-				label: p.key + unit,
+				label: label + unit,
 				value: current[p.key] as number,
 				min: p.min,
 				max: p.max,

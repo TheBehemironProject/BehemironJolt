@@ -42,7 +42,7 @@ let frameCounter = 0
 
 // Kinematic bodies driven by the Blockbench animation
 let animatedBodies: { uuid: string; group: AnyBB }[] = []
-// B4: WASD preview-driving state (active while simulating with vehicle/character bodies)
+// WASD preview-driving state (active while simulating with vehicle/character bodies)
 const driveKeys = new Set<string>()
 let driveListeners: (() => void) | null = null
 
@@ -118,7 +118,12 @@ function onEditController(uuid: string, kind: 'character' | 'vehicle' | 'softbod
 
 function onEditBody(uuid: string): void {
 	if (!store) return
-	openBodyDialog({ store, uuid, notifyChanged: () => adapter.dispatch('behemiron_jolt_refresh') })
+	openBodyDialog({
+		store,
+		uuid,
+		name: adapter.bodyDisplayName(uuid),
+		notifyChanged: () => adapter.dispatch('behemiron_jolt_refresh')
+	})
 }
 
 function refreshViz(): void {

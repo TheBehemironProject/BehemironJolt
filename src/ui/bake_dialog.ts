@@ -1,4 +1,4 @@
-// Physics → Blockbench animation baking. Performance contract (PLAN §5):
+// Physics → Blockbench animation baking. Performance contract:
 // Baking runs a headless session: fixed 60Hz stepping, preallocated sample buffers (zero
 // per-sample allocation), time-sliced loop (<40ms per slice) with a live progress bar.
 

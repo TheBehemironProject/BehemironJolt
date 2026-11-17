@@ -4,6 +4,7 @@
 
 import { MOTION_QUALITIES, sanitizeBodyProps, type BodyProps } from '../core/store.ts'
 import { t, qualityLabel } from './i18n.ts'
+import { injectDialogStyles } from './constraint_dialog.ts'
 
 type AnyBB = any
 
@@ -14,14 +15,16 @@ function bbGlobal(name: string): AnyBB {
 export interface BodyDialogCtx {
 	store: { getBodyProps(uuid: string): BodyProps; setBodyProps(uuid: string, patch: Partial<BodyProps>): void }
 	uuid: string
+	name?: string
 	notifyChanged?(): void
 }
 
 export function openBodyDialog(ctx: BodyDialogCtx): void {
 	const Dialog = bbGlobal('Dialog')
+	injectDialogStyles()
 	const props = ctx.store.getBodyProps(ctx.uuid)
 	const form: Record<string, any> = {
-		header: { type: 'info', text: t('panel.body', props.objectLayer), full_width: true }
+		header: { type: 'info', text: t('panel.body', ctx.name || ctx.uuid.slice(0, 8)), full_width: true }
 	}
 	const num = (key: keyof BodyProps & string, label: string, min: number, max: number, step: number) => {
 		form[key] = { type: 'number', label, value: props[key] as number, min, max, step }

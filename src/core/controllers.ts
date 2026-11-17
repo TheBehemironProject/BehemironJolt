@@ -1,6 +1,6 @@
 // Character / vehicle controller metadata: defaults + sanitize. Params are stored per body in
-// `controllerParams` (free-form record, defaults merged at use time). UI/会话全量参数编辑后续批次。
-// Field names follow Jolt settings classes (CharacterSettings / WheeledVehicleControllerSettings / WheelSettingsTV).
+// `controllerParams` (free-form record, defaults merged at use time).
+// Field names follow Jolt settings classes (CharacterSettings / WheeledVehicleControllerSettings / WheelSettingsWV).
 
 import type { Vec3 } from '../util/math.ts'
 

@@ -1,13 +1,24 @@
 // Ghost rendering: clones of the preview meshes driven by physics transforms.
 // Originals are hidden, never modified; restore() brings everything back.
 // Uses only instance methods (no global THREE): matrices via our math, clones via mesh.clone().
+// Clones get their own slightly transparent material copy so the simulation read is visually
+// distinct from the authored model (and the copies are disposed on restore — no GPU leak).
 
 import { mat4Multiply, type Mat4 } from '../util/math.ts'
+
+/** A THREE.Material (typed loosely: we only clone it and tweak transparency) */
+export interface GhostMaterialLike {
+	transparent: boolean
+	opacity: number
+	clone(): GhostMaterialLike
+	dispose(): void
+}
 
 /** A THREE.Mesh from the Blockbench preview (typed loosely: we only use clone/visibility/matrix) */
 export interface GhostMeshLike {
 	clone(): GhostMeshLike
 	visible: boolean
+	material: GhostMaterialLike | GhostMaterialLike[]
 	matrix: {
 		elements: ArrayLike<number>
 		fromArray(arr: number[]): unknown
@@ -42,10 +53,20 @@ interface GhostEntry {
 	offset: Mat4
 }
 
+const GHOST_OPACITY = 0.85
+
+function ghostify(material: GhostMaterialLike): GhostMaterialLike {
+	const copy = material.clone()
+	copy.transparent = true
+	copy.opacity = Math.min(copy.opacity ?? 1, GHOST_OPACITY)
+	return copy
+}
+
 export class GhostView {
 	private scene: GhostScene
 	private clones: GhostEntry[] = []
 	private hidden: GhostMeshLike[] = []
+	private materials: GhostMaterialLike[] = []
 
 	constructor(scene: GhostScene) {
 		this.scene = scene
@@ -61,6 +82,14 @@ export class GhostView {
 				clone.matrixWorld.fromArray(Array.from(clone.matrix.elements))
 				clone.matrixWorldNeedsUpdate = true
 				clone.visible = true
+				const source = item.mesh.material
+				if (Array.isArray(source)) {
+					clone.material = source.map(ghostify)
+					this.materials.push(...(clone.material as GhostMaterialLike[]))
+				} else if (source) {
+					clone.material = ghostify(source)
+					this.materials.push(clone.material as GhostMaterialLike)
+				}
 				this.scene.add(clone)
 				this.clones.push({ clone, bodyIndex: body.bodyIndex, offset: item.offset })
 				if (item.mesh.visible) {
@@ -85,6 +114,10 @@ export class GhostView {
 			this.scene.remove(entry.clone)
 		}
 		this.clones = []
+		for (const material of this.materials) {
+			material.dispose()
+		}
+		this.materials = []
 		for (const mesh of this.hidden) {
 			mesh.visible = true
 		}

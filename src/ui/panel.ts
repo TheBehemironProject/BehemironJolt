@@ -76,13 +76,13 @@ export function createPanel(ctx: PanelCtx): PanelApi {
 		#panel_behemiron_jolt .numeric_input_slider { display: none; }
 		#panel_behemiron_jolt .dialog_form_buttons { display: flex; flex-wrap: wrap; gap: 4px; }
 		#panel_behemiron_jolt .dialog_form_buttons button { white-space: nowrap; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+		#panel_behemiron_jolt .form_bar_header .small_text { color: var(--color-accent); font-weight: 600; }
+		#panel_behemiron_jolt .behemiron_jolt_status { padding: 4px 8px; font-size: 11px; opacity: 0.8; border-top: 1px solid var(--color-border); min-height: 20px; }
+		#panel_behemiron_jolt .behemiron_jolt_status .bj-status-mode.is-running { color: var(--color-accent); font-weight: 600; }
 	`
 	document.head.appendChild(guard)
 
-	const statusEl: HTMLElement = Interface.createElement('div', {
-		class: 'behemiron_jolt_status',
-		style: 'padding:4px 8px;font-size:11px;opacity:0.75;border-top:1px solid var(--color-border);min-height:20px'
-	})
+	const statusEl: HTMLElement = Interface.createElement('div', { class: 'behemiron_jolt_status' })
 	panel.node.append(statusEl)
 	let bridgeTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -92,6 +92,21 @@ export function createPanel(ctx: PanelCtx): PanelApi {
 
 	function applyToElements(uuids: string[], key: string, value: unknown): void {
 		for (const uuid of uuids) ctx.store.setElementProps(uuid, { [key]: value } as Partial<ElementProps>)
+	}
+
+	function bodyNum(uuid: string, keyPrefix: string, key: keyof BodyProps & string, step: number): FormConfig[string] {
+		const props: BodyProps = ctx.store.getBodyProps(uuid)
+		return {
+			// no min/max in the sidebar: bounded numbers render BB's < > stepper arrows, which
+			// overflow the narrow panel — ranges live in the body dialog instead
+			type: 'number',
+			label: t('panel.' + key),
+			value: props[key] as number,
+			step,
+			onChange() {
+				ctx.store.setBodyProps(uuid, { [key]: Number(result()[keyPrefix + key]) } as Partial<BodyProps>)
+			}
+		}
 	}
 
 	function elementConfig(uuids: string[]): FormConfig {
@@ -119,30 +134,11 @@ export function createPanel(ctx: PanelCtx): PanelApi {
 		}
 	}
 
-	function bodyConfig(uuid: string, name: string, keyPrefix = ''): FormConfig {
+	function bodyConfig(uuid: string, name: string, keyPrefix = '', withNote = true): FormConfig {
 		const props: BodyProps = ctx.store.getBodyProps(uuid)
 		const set = (key: string, value: unknown) =>
 			ctx.store.setBodyProps(uuid, { [key]: value } as Partial<BodyProps>)
 		const rd = (key: string) => result()[keyPrefix + key]
-		const PANEL_LABEL: Record<string, string> = {
-			linearDamping: 'panel.linear_damping',
-			angularDamping: 'panel.angular_damping',
-			gravityFactor: 'panel.gravity_factor'
-		}
-		const num = (key: keyof BodyProps & string, step: number): FormConfig[string] => ({
-			// no min/max in the sidebar: bounded numbers render BB's < > stepper arrows, which
-			// overflow the narrow panel — ranges live in the body dialog instead
-			type: 'number',
-			label: t(PANEL_LABEL[key] || 'panel.' + key),
-			value: props[key] as number,
-			step,
-			onChange() {
-				set(key, Number(rd(key)))
-			}
-		})
-		const related: ConstraintData[] = ctx.store
-			.listConstraints()
-			.filter(c => c.bodyA === uuid || c.bodyB === uuid)
 		// Essentials only — everything else lives in the body-properties dialog (overflow-free by design)
 		const config: FormConfig = {
 			header: { type: 'info', text: t('panel.body', name), full_width: true },
@@ -155,8 +151,9 @@ export function createPanel(ctx: PanelCtx): PanelApi {
 					set('motionType', rd('motionType'))
 				}
 			},
-			friction: num('friction', 0.05),
-			restitution: num('restitution', 0.05),			controller: {
+			friction: bodyNum(uuid, keyPrefix, 'friction', 0.05),
+			restitution: bodyNum(uuid, keyPrefix, 'restitution', 0.05),
+			controller: {
 				type: 'select',
 				label: t('panel.controller'),
 				value: props.controller,
@@ -169,20 +166,23 @@ export function createPanel(ctx: PanelCtx): PanelApi {
 				},
 				onChange() {
 					set('controller', rd('controller'))
+					// note text depends on the selection — rebuild so the hint swaps immediately
+					rebuild()
 				}
 			},
-			controllerNote: { type: 'info', text: t('panel.controller_note') },
 			actionButtons: {
 				type: 'buttons',
 				label: '',
 				full_width: true,
 				buttons: [t('panel.edit_controller'), t('panel.body_props')],
 				click(i: number) {
+					// read fresh: `props` is a build-time snapshot and the select above does not rebuild fields
+					const controller = ctx.store.getBodyProps(uuid).controller
 					if (i === 0) {
-						if (props.controller !== 'none') {
+						if (controller !== 'none') {
 							ctx.onEditController?.(
 								uuid,
-								props.controller as 'character' | 'vehicle' | 'softbody' | 'hair'
+								controller as 'character' | 'vehicle' | 'softbody' | 'hair'
 							)
 						} else {
 							const Blockbench: AnyBB = (globalThis as any).Blockbench
@@ -194,14 +194,20 @@ export function createPanel(ctx: PanelCtx): PanelApi {
 				}
 			}
 		}
+		// contextual controller hint (Godot: help only where it applies) instead of one generic note
+		const NOTE_KEY: Record<string, string> = {
+			character: 'panel.note_character',
+			vehicle: 'panel.note_vehicle',
+			softbody: 'panel.note_softbody',
+			hair: 'panel.note_hair'
+		}
+		const noteKey = NOTE_KEY[props.controller]
+		if (withNote && noteKey) config.controllerNote = { type: 'info', text: t(noteKey) }
+		const related: ConstraintData[] = ctx.store
+			.listConstraints()
+			.filter(c => c.bodyA === uuid || c.bodyB === uuid)
 		if (related.length) {
-			config.constraintInfo = {
-				type: 'info',
-				text: t(
-					'panel.constraints_list',
-					related.map(c => describeConstraint(c, ctx.bodyDisplayName)).join(' | ')
-				)
-			}
+			config.constraintLabel = { type: 'info', text: t('panel.constraints'), full_width: true }
 			config.constraintButtons = {
 				type: 'buttons',
 				label: '',
@@ -251,6 +257,7 @@ export function createPanel(ctx: PanelCtx): PanelApi {
 		}
 		if (all.length) {
 			config.sep = '_'
+			config.constraintLabel = { type: 'info', text: t('panel.constraints'), full_width: true }
 			config.constraintButtons = {
 				type: 'buttons',
 				label: '',
@@ -272,13 +279,7 @@ export function createPanel(ctx: PanelCtx): PanelApi {
 
 	function flattenConfig(config: FormConfig, prefix: string): FormConfig {
 		const out: FormConfig = {}
-		for (const [key, value] of Object.entries(config)) {
-			if (value && typeof value === 'object' && !Array.isArray(value) && 'type' in value) {
-				out[prefix + key] = value
-			} else {
-				out[prefix + key] = value
-			}
-		}
+		for (const [key, value] of Object.entries(config)) out[prefix + key] = value
 		return out
 	}
 
@@ -300,12 +301,12 @@ export function createPanel(ctx: PanelCtx): PanelApi {
 					header: { type: 'info', text: t('panel.two_bodies'), full_width: true },
 					hint: { type: 'info', text: t('panel.constraint_hint') },
 					...flattenConfig(
-						bodyConfig(selection.groups[0].uuid, selection.groups[0].name, 'g1.'),
+						bodyConfig(selection.groups[0].uuid, selection.groups[0].name, 'g1.', false),
 						'g1.'
 					),
 					sep: '_',
 					...flattenConfig(
-						bodyConfig(selection.groups[1].uuid, selection.groups[1].name, 'g2.'),
+						bodyConfig(selection.groups[1].uuid, selection.groups[1].name, 'g2.', false),
 						'g2.'
 					)
 				}
@@ -336,20 +337,33 @@ export function createPanel(ctx: PanelCtx): PanelApi {
 	function refreshStatus(): void {
 		const counts = ctx.store.counts()
 		const status = ctx.sim.status()
-		const parts: string[] = []
+		statusEl.textContent = ''
+		const append = (text: string, cls?: string) => {
+			if (statusEl.childNodes.length) statusEl.append(document.createTextNode(' · '))
+			if (cls) {
+				const span = document.createElement('span')
+				span.className = cls
+				span.textContent = text
+				statusEl.append(span)
+			} else {
+				statusEl.append(document.createTextNode(text))
+			}
+		}
 		if (status.mode !== 'idle') {
-			parts.push(status.mode === 'running' ? t('panel.sim_running') : t('panel.sim_paused'))
-			parts.push(
+			append(
+				status.mode === 'running' ? t('panel.sim_running') : t('panel.sim_paused'),
+				'bj-status-mode is-' + status.mode
+			)
+			append(
 				`${status.time.toFixed(1)}s · #${status.steps}${ctx.sim.diagInfo?.() || ''}${ctx.sim.sensorInfo?.() || ''}`
 			)
 			const selection = ctx.getSelection()
 			if (selection.groups.length === 1) {
 				const velocity = ctx.sim.readBodyVelocity(selection.groups[0].uuid)
-				if (velocity) parts.push(t('panel.speed', Math.hypot(...velocity).toFixed(2)))
+				if (velocity) append(t('panel.speed', Math.hypot(...velocity).toFixed(2)))
 			}
 		}
-		parts.push(t('panel.status', counts.bodies, counts.constraints))
-		statusEl.textContent = parts.join(' · ')
+		append(t('panel.status', counts.bodies, counts.constraints))
 	}
 
 	const offSelection = onEvent('update_selection', rebuild)
@@ -364,6 +378,7 @@ export function createPanel(ctx: PanelCtx): PanelApi {
 			offSelection()
 			offRefresh()
 			statusEl.remove()
+			guard.remove()
 			try {
 				panel.delete?.()
 			} catch {

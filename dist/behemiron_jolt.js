@@ -3177,10 +3177,18 @@
   };
 
   // src/sim/ghost.ts
+  var GHOST_OPACITY = 0.85;
+  function ghostify(material) {
+    const copy = material.clone();
+    copy.transparent = true;
+    copy.opacity = Math.min(copy.opacity ?? 1, GHOST_OPACITY);
+    return copy;
+  }
   var GhostView = class {
     constructor(scene2) {
       this.clones = [];
       this.hidden = [];
+      this.materials = [];
       this.scene = scene2;
     }
     // bodyVis: [{bodyIndex, bodyMatrix, items: [{mesh, offset}]}]
@@ -3193,6 +3201,14 @@
           clone.matrixWorld.fromArray(Array.from(clone.matrix.elements));
           clone.matrixWorldNeedsUpdate = true;
           clone.visible = true;
+          const source = item.mesh.material;
+          if (Array.isArray(source)) {
+            clone.material = source.map(ghostify);
+            this.materials.push(...clone.material);
+          } else if (source) {
+            clone.material = ghostify(source);
+            this.materials.push(clone.material);
+          }
           this.scene.add(clone);
           this.clones.push({ clone, bodyIndex: body.bodyIndex, offset: item.offset });
           if (item.mesh.visible) {
@@ -3215,6 +3231,10 @@
         this.scene.remove(entry.clone);
       }
       this.clones = [];
+      for (const material of this.materials) {
+        material.dispose();
+      }
+      this.materials = [];
       for (const mesh of this.hidden) {
         mesh.visible = true;
       }
@@ -3255,7 +3275,10 @@
     "panel.motion_quality": "Motion Quality",
     "panel.isSensor": "Sensor (no collision response)",
     "panel.controller": "Controller",
-    "panel.controller_note": 'Use "Edit params" below. Vehicle wheels = child groups of the body; drive with WASD while simulating.',
+    "panel.note_character": "Move with WASD, jump with Space while simulating.",
+    "panel.note_vehicle": "Wheels = child groups of the body; drive with WASD while simulating.",
+    "panel.note_softbody": "Pin soft-body corners by painting vertex weights.",
+    "panel.note_hair": "Strands grow from painted weights; tune the look in parameters.",
     "controller.none": "None",
     "controller.character": "Character",
     "controller.vehicle": "Vehicle",
@@ -3283,7 +3306,7 @@
     "panel.sim_paused": "SIM paused",
     "panel.mass_props": "Mass Properties",
     "panel.mass": "Mass (kg, when overriding)",
-    "panel.constraints_list": "Constraints: %0",
+    "panel.constraints": "Constraints",
     "panel.settings": "Project physics settings",
     "panel.units_per_meter": "Units per meter",
     "panel.gravity": "Gravity (m/s\xB2)",
@@ -3388,16 +3411,18 @@
     "enum.FullyConstrained": "Fully constrained",
     "enum.Velocity": "Velocity",
     "enum.Position": "Position",
+    "bend.None": "None",
+    "bend.Distance": "Distance",
+    "bend.Dihedral": "Dihedral",
     "section.anchors": "Anchors",
     "section.limits": "Limits",
     "section.motor": "Motor",
     "section.path": "Path",
-    "panel.constraints": "Constraints",
-    "panel.edit": "Edit",
     "field.model_units": " (model units)",
     "field.no_limit": " (empty = none)",
     "field.vec6_hint": " \u2014 6 comma separated values, empty = free axis",
     "dialog.new_constraint": "New Constraint",
+    "dialog.constraint_type": "Constraint type",
     "dialog.anchor_info": "Anchors default to body centers (editable next step)",
     "dialog.constraint": "%0 Constraint",
     "dialog.delete": "Delete this constraint",
@@ -3462,7 +3487,10 @@
     "panel.motion_quality": "\u8FD0\u52A8\u8D28\u91CF",
     "panel.isSensor": "\u4F20\u611F\u5668\uFF08\u65E0\u78B0\u649E\u54CD\u5E94\uFF09",
     "panel.controller": "\u63A7\u5236\u5668",
-    "panel.controller_note": '\u4F7F\u7528\u4E0B\u65B9"\u7F16\u8F91\u53C2\u6570"\u3002\u8F66\u8F6E = \u8F66\u8EAB\u7684\u5B50 Group\uFF1B\u6A21\u62DF\u65F6 WASD \u9A7E\u9A76\u3002',
+    "panel.note_character": "\u6A21\u62DF\u65F6\u7528 WASD \u79FB\u52A8\u3001\u7A7A\u683C\u8DF3\u8DC3\u3002",
+    "panel.note_vehicle": "\u8F66\u8F6E = \u8F66\u8EAB\u7684\u5B50 Group\uFF1B\u6A21\u62DF\u65F6\u7528 WASD \u9A7E\u9A76\u3002",
+    "panel.note_softbody": "\u5237\u9876\u70B9\u6743\u91CD\u53EF\u628A\u8F6F\u4F53\u89D2\u70B9\u9489\u4F4F\u3002",
+    "panel.note_hair": "\u53D1\u675F\u4ECE\u5237\u4E86\u6743\u91CD\u7684\u4F4D\u7F6E\u751F\u957F\uFF1B\u5728\u53C2\u6570\u91CC\u8C03\u6574\u5916\u89C2\u3002",
     "controller.none": "\u65E0",
     "controller.character": "\u89D2\u8272",
     "controller.vehicle": "\u8F66\u8F86",
@@ -3490,7 +3518,7 @@
     "panel.sim_paused": "\u6A21\u62DF\u5DF2\u6682\u505C",
     "panel.mass_props": "\u8D28\u91CF\u5C5E\u6027",
     "panel.mass": "\u8D28\u91CF (kg\uFF0C\u8986\u76D6\u6A21\u5F0F\u65F6\u751F\u6548)",
-    "panel.constraints_list": "\u7EA6\u675F\uFF1A%0",
+    "panel.constraints": "\u7EA6\u675F",
     "panel.settings": "\u5DE5\u7A0B\u7269\u7406\u8BBE\u7F6E",
     "panel.units_per_meter": "\u6BCF\u7C73\u5355\u4F4D\u6570",
     "panel.gravity": "\u91CD\u529B (m/s\xB2)",
@@ -3589,6 +3617,9 @@
     "enum.Off": "\u5173\u95ED",
     "enum.Velocity": "\u901F\u5EA6",
     "enum.Position": "\u4F4D\u7F6E",
+    "bend.None": "\u65E0",
+    "bend.Distance": "\u8DDD\u79BB",
+    "bend.Dihedral": "\u4E8C\u9762\u89D2",
     "section.anchors": "\u951A\u70B9",
     "section.limits": "\u9650\u4F4D",
     "section.motor": "\u9A6C\u8FBE",
@@ -3599,12 +3630,11 @@
     "enum.ConstrainToPath": "\u7EA6\u675F\u5230\u8DEF\u5F84",
     "enum.FullyConstrained": "\u5B8C\u5168\u7EA6\u675F",
     "section.path": "\u8DEF\u5F84",
-    "panel.constraints": "\u7EA6\u675F",
-    "panel.edit": "\u7F16\u8F91",
     "field.model_units": "\uFF08\u6A21\u578B\u5355\u4F4D\uFF09",
     "field.no_limit": "\uFF08\u7559\u7A7A = \u4E0D\u9650\uFF09",
     "field.vec6_hint": " \u2014 6 \u4E2A\u9017\u53F7\u5206\u9694\u7684\u503C\uFF0C\u7559\u7A7A = \u81EA\u7531\u8F74",
     "dialog.new_constraint": "\u65B0\u5EFA\u7EA6\u675F",
+    "dialog.constraint_type": "\u7EA6\u675F\u7C7B\u578B",
     "dialog.anchor_info": "\u951A\u70B9\u9ED8\u8BA4\u53D6\u4E24\u521A\u4F53\u4E2D\u5FC3\uFF08\u4E0B\u4E00\u6B65\u53EF\u6539\uFF09",
     "dialog.constraint": "%0 \u7EA6\u675F",
     "dialog.delete": "\u5220\u9664\u6B64\u7EA6\u675F",
@@ -3722,12 +3752,12 @@
 		#panel_behemiron_jolt .numeric_input_slider { display: none; }
 		#panel_behemiron_jolt .dialog_form_buttons { display: flex; flex-wrap: wrap; gap: 4px; }
 		#panel_behemiron_jolt .dialog_form_buttons button { white-space: nowrap; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+		#panel_behemiron_jolt .form_bar_header .small_text { color: var(--color-accent); font-weight: 600; }
+		#panel_behemiron_jolt .behemiron_jolt_status { padding: 4px 8px; font-size: 11px; opacity: 0.8; border-top: 1px solid var(--color-border); min-height: 20px; }
+		#panel_behemiron_jolt .behemiron_jolt_status .bj-status-mode.is-running { color: var(--color-accent); font-weight: 600; }
 	`;
     document.head.appendChild(guard);
-    const statusEl = Interface.createElement("div", {
-      class: "behemiron_jolt_status",
-      style: "padding:4px 8px;font-size:11px;opacity:0.75;border-top:1px solid var(--color-border);min-height:20px"
-    });
+    const statusEl = Interface.createElement("div", { class: "behemiron_jolt_status" });
     panel.node.append(statusEl);
     let bridgeTimer = null;
     function result() {
@@ -3735,6 +3765,20 @@
     }
     function applyToElements(uuids, key, value) {
       for (const uuid of uuids) ctx.store.setElementProps(uuid, { [key]: value });
+    }
+    function bodyNum(uuid, keyPrefix, key, step) {
+      const props = ctx.store.getBodyProps(uuid);
+      return {
+        // no min/max in the sidebar: bounded numbers render BB's < > stepper arrows, which
+        // overflow the narrow panel — ranges live in the body dialog instead
+        type: "number",
+        label: t("panel." + key),
+        value: props[key],
+        step,
+        onChange() {
+          ctx.store.setBodyProps(uuid, { [key]: Number(result()[keyPrefix + key]) });
+        }
+      };
     }
     function elementConfig(uuids) {
       const first = ctx.store.getElementProps(uuids[0]);
@@ -3760,27 +3804,10 @@
         note: { type: "info", text: t("panel.auto_note") }
       };
     }
-    function bodyConfig(uuid, name, keyPrefix = "") {
+    function bodyConfig(uuid, name, keyPrefix = "", withNote = true) {
       const props = ctx.store.getBodyProps(uuid);
       const set = (key, value) => ctx.store.setBodyProps(uuid, { [key]: value });
       const rd = (key) => result()[keyPrefix + key];
-      const PANEL_LABEL = {
-        linearDamping: "panel.linear_damping",
-        angularDamping: "panel.angular_damping",
-        gravityFactor: "panel.gravity_factor"
-      };
-      const num2 = (key, step) => ({
-        // no min/max in the sidebar: bounded numbers render BB's < > stepper arrows, which
-        // overflow the narrow panel — ranges live in the body dialog instead
-        type: "number",
-        label: t(PANEL_LABEL[key] || "panel." + key),
-        value: props[key],
-        step,
-        onChange() {
-          set(key, Number(rd(key)));
-        }
-      });
-      const related = ctx.store.listConstraints().filter((c) => c.bodyA === uuid || c.bodyB === uuid);
       const config = {
         header: { type: "info", text: t("panel.body", name), full_width: true },
         motionType: {
@@ -3792,8 +3819,8 @@
             set("motionType", rd("motionType"));
           }
         },
-        friction: num2("friction", 0.05),
-        restitution: num2("restitution", 0.05),
+        friction: bodyNum(uuid, keyPrefix, "friction", 0.05),
+        restitution: bodyNum(uuid, keyPrefix, "restitution", 0.05),
         controller: {
           type: "select",
           label: t("panel.controller"),
@@ -3807,20 +3834,21 @@
           },
           onChange() {
             set("controller", rd("controller"));
+            rebuild();
           }
         },
-        controllerNote: { type: "info", text: t("panel.controller_note") },
         actionButtons: {
           type: "buttons",
           label: "",
           full_width: true,
           buttons: [t("panel.edit_controller"), t("panel.body_props")],
           click(i) {
+            const controller = ctx.store.getBodyProps(uuid).controller;
             if (i === 0) {
-              if (props.controller !== "none") {
+              if (controller !== "none") {
                 ctx.onEditController?.(
                   uuid,
-                  props.controller
+                  controller
                 );
               } else {
                 const Blockbench2 = globalThis.Blockbench;
@@ -3832,14 +3860,17 @@
           }
         }
       };
+      const NOTE_KEY = {
+        character: "panel.note_character",
+        vehicle: "panel.note_vehicle",
+        softbody: "panel.note_softbody",
+        hair: "panel.note_hair"
+      };
+      const noteKey = NOTE_KEY[props.controller];
+      if (withNote && noteKey) config.controllerNote = { type: "info", text: t(noteKey) };
+      const related = ctx.store.listConstraints().filter((c) => c.bodyA === uuid || c.bodyB === uuid);
       if (related.length) {
-        config.constraintInfo = {
-          type: "info",
-          text: t(
-            "panel.constraints_list",
-            related.map((c) => describeConstraint(c, ctx.bodyDisplayName)).join(" | ")
-          )
-        };
+        config.constraintLabel = { type: "info", text: t("panel.constraints"), full_width: true };
         config.constraintButtons = {
           type: "buttons",
           label: "",
@@ -3888,6 +3919,7 @@
       };
       if (all.length) {
         config.sep = "_";
+        config.constraintLabel = { type: "info", text: t("panel.constraints"), full_width: true };
         config.constraintButtons = {
           type: "buttons",
           label: "",
@@ -3907,13 +3939,7 @@
     }
     function flattenConfig(config, prefix) {
       const out = {};
-      for (const [key, value] of Object.entries(config)) {
-        if (value && typeof value === "object" && !Array.isArray(value) && "type" in value) {
-          out[prefix + key] = value;
-        } else {
-          out[prefix + key] = value;
-        }
-      }
+      for (const [key, value] of Object.entries(config)) out[prefix + key] = value;
       return out;
     }
     function rebuild() {
@@ -3933,12 +3959,12 @@
             header: { type: "info", text: t("panel.two_bodies"), full_width: true },
             hint: { type: "info", text: t("panel.constraint_hint") },
             ...flattenConfig(
-              bodyConfig(selection.groups[0].uuid, selection.groups[0].name, "g1."),
+              bodyConfig(selection.groups[0].uuid, selection.groups[0].name, "g1.", false),
               "g1."
             ),
             sep: "_",
             ...flattenConfig(
-              bodyConfig(selection.groups[1].uuid, selection.groups[1].name, "g2."),
+              bodyConfig(selection.groups[1].uuid, selection.groups[1].name, "g2.", false),
               "g2."
             )
           };
@@ -3965,20 +3991,33 @@
     function refreshStatus() {
       const counts2 = ctx.store.counts();
       const status = ctx.sim.status();
-      const parts = [];
+      statusEl.textContent = "";
+      const append = (text, cls) => {
+        if (statusEl.childNodes.length) statusEl.append(document.createTextNode(" \xB7 "));
+        if (cls) {
+          const span = document.createElement("span");
+          span.className = cls;
+          span.textContent = text;
+          statusEl.append(span);
+        } else {
+          statusEl.append(document.createTextNode(text));
+        }
+      };
       if (status.mode !== "idle") {
-        parts.push(status.mode === "running" ? t("panel.sim_running") : t("panel.sim_paused"));
-        parts.push(
+        append(
+          status.mode === "running" ? t("panel.sim_running") : t("panel.sim_paused"),
+          "bj-status-mode is-" + status.mode
+        );
+        append(
           `${status.time.toFixed(1)}s \xB7 #${status.steps}${ctx.sim.diagInfo?.() || ""}${ctx.sim.sensorInfo?.() || ""}`
         );
         const selection = ctx.getSelection();
         if (selection.groups.length === 1) {
           const velocity = ctx.sim.readBodyVelocity(selection.groups[0].uuid);
-          if (velocity) parts.push(t("panel.speed", Math.hypot(...velocity).toFixed(2)));
+          if (velocity) append(t("panel.speed", Math.hypot(...velocity).toFixed(2)));
         }
       }
-      parts.push(t("panel.status", counts2.bodies, counts2.constraints));
-      statusEl.textContent = parts.join(" \xB7 ");
+      append(t("panel.status", counts2.bodies, counts2.constraints));
     }
     const offSelection = onEvent("update_selection", rebuild);
     const offRefresh = onEvent("behemiron_jolt_refresh", () => refreshStatus());
@@ -3990,6 +4029,7 @@
         offSelection();
         offRefresh();
         statusEl.remove();
+        guard.remove();
         try {
           panel.delete?.();
         } catch {
@@ -4001,6 +4041,24 @@
   // src/ui/constraint_dialog.ts
   function bbGlobal2(name) {
     return globalThis[name] || globalThis.Blockbench?.[name];
+  }
+  var dialogStylesInjected = false;
+  function injectDialogStyles() {
+    if (dialogStylesInjected) return;
+    dialogStylesInjected = true;
+    document.getElementById("behemiron_jolt_dialog_styles")?.remove();
+    const css = `
+		dialog[id^='behemiron_jolt_'] .form_bar_header .small_text { color: var(--color-accent); font-weight: 600; }
+		dialog[id^='behemiron_jolt_'] [class*='form_bar___head_'] .small_text {
+			display: block; margin-top: 10px; padding: 4px 0 4px 9px;
+			border-left: 3px solid var(--color-accent);
+			font-weight: 600; letter-spacing: 0.05em; opacity: 0.9;
+		}
+	`;
+    const style = document.createElement("style");
+    style.id = "behemiron_jolt_dialog_styles";
+    style.textContent = css;
+    document.head.appendChild(style);
   }
   function parseVec6(text, fallback) {
     if (typeof text !== "string" || !text.trim()) return fallback.slice();
@@ -4017,6 +4075,7 @@
   }
   function openConstraintWizard(ctx) {
     const Dialog = bbGlobal2("Dialog");
+    injectDialogStyles();
     const groups = ctx.getSelection().groups;
     if (groups.length !== 2) {
       ctx.showMessage(t("msg.select_two_groups"));
@@ -4031,7 +4090,7 @@
         info: { type: "info", text: `${gA.name} \u2194 ${gB.name}` },
         type: {
           type: "select",
-          label: t("dialog.new_constraint"),
+          label: t("dialog.constraint_type"),
           options: Object.fromEntries(CONSTRAINT_TYPE_NAMES.map((name) => [name, typeLabel(name)]))
         },
         anchor_info: { type: "info", text: t("dialog.anchor_info") }
@@ -4045,6 +4104,7 @@
   }
   function openConstraintEditor(ctx, constraint) {
     const Dialog = bbGlobal2("Dialog");
+    injectDialogStyles();
     const meta = CONSTRAINT_TYPES[constraint.type];
     const existing = !!ctx.store.getConstraint(constraint.id);
     const form = {
@@ -4415,17 +4475,22 @@
 		.behemiron_jolt_viz { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
 		.behemiron_jolt_viz .bj-c { pointer-events: auto; cursor: pointer; }
 		.behemiron_jolt_viz line, .behemiron_jolt_viz polyline, .behemiron_jolt_viz path {
-			fill: none; stroke-width: 2; vector-effect: non-scaling-stroke; stroke-linecap: round; }
-		.behemiron_jolt_viz .role-joint { color: var(--color-accent, #7cc4ff); }
-		.behemiron_jolt_viz .role-a { color: #6db3f2; }
-		.behemiron_jolt_viz .role-b { color: #63d0e6; }
+			fill: none; stroke: currentColor; stroke-width: 2; vector-effect: non-scaling-stroke; stroke-linecap: round; }
+		/* joint palette follows Godot's joint gizmo colors (light blues); anchor crosses use the RGB axis hues */
+		.behemiron_jolt_viz .role-joint { color: var(--color-accent, #80ccff); }
+		.behemiron_jolt_viz .role-a { color: #8fb8ff; }
+		.behemiron_jolt_viz .role-b { color: #63d8e8; }
+		.behemiron_jolt_viz .bj-axis-x { color: #e05555; }
+		.behemiron_jolt_viz .bj-axis-y { color: #6fbf67; }
+		.behemiron_jolt_viz .bj-axis-z { color: #5b8dd9; }
 		.behemiron_jolt_viz .bj-c { opacity: 0.45; }
-		.behemiron_jolt_viz .bj-c.active { opacity: 1; }
+		.behemiron_jolt_viz .bj-c.active { opacity: 1; filter: drop-shadow(0 0 3px rgba(124, 196, 255, 0.5)); }
 		.behemiron_jolt_viz .bj-c.active line, .behemiron_jolt_viz .bj-c.active polyline, .behemiron_jolt_viz .bj-c.active path { stroke-width: 2.75; }
 		.behemiron_jolt_viz .bj-c:hover { opacity: 1; }
 		.behemiron_jolt_viz .bj-handle { cursor: grab; pointer-events: auto; }
+		.behemiron_jolt_viz .bj-handle.dragging { cursor: grabbing; }
 		.behemiron_jolt_viz .bj-handle rect { fill: var(--color-accent, #7cc4ff); stroke: #fff; stroke-width: 1; }
-		.behemiron_jolt_viz .bj-handle:hover rect { fill: #fff; }
+		.behemiron_jolt_viz .bj-handle:hover rect, .behemiron_jolt_viz .bj-handle.dragging rect { fill: #fff; }
 		.behemiron_jolt_viz .bj-debug line { stroke: var(--color-accent, #7cc4ff); stroke-dasharray: 4 3; opacity: 0.8; }
 		.behemiron_jolt_viz .bj-sensor { fill: none; stroke: var(--color-accent, #7cc4ff); stroke-width: 2; opacity: 0.5; }
 		.behemiron_jolt_viz .bj-sensor.active { fill: var(--color-accent, #7cc4ff); opacity: 1; }
@@ -4525,15 +4590,17 @@
             transform: `rotate(45 ${s.x} ${s.y})`
           })
         );
-        g.appendChild(el("circle", { cx: String(s.x), cy: String(s.y), r: "9", fill: "transparent" }));
+        g.appendChild(el("circle", { cx: String(s.x), cy: String(s.y), r: "12", fill: "transparent" }));
         g.addEventListener("pointerdown", (event) => {
           event.stopPropagation();
           event.preventDefault();
+          g.classList.add("dragging");
           drag = {
             constraintId: constraint.id,
             field: handle.field,
             index: handle.index,
-            planePoint: handle.position.slice()
+            planePoint: handle.position.slice(),
+            el: g
           };
           window.addEventListener("pointermove", onDragMove);
           window.addEventListener("pointerup", onDragEnd, { once: true });
@@ -4550,6 +4617,7 @@
       deps.onMoveHandle?.(drag.constraintId, drag.field, world, drag.index);
     }
     function onDragEnd() {
+      drag?.el.classList.remove("dragging");
       drag = null;
       window.removeEventListener("pointermove", onDragMove);
     }
@@ -4587,11 +4655,13 @@
           el("line", { x1: String(a.x), y1: String(a.y), x2: String(b.x), y2: String(b.y), class: cls })
         );
       } else if (p.kind === "cross") {
-        for (const axis of [
+        const axes = [
           [1, 0, 0],
           [0, 1, 0],
           [0, 0, 1]
-        ]) {
+        ];
+        for (let i = 0; i < axes.length; i++) {
+          const axis = axes[i];
           const a = deps.projectPoint([
             p.at[0] - axis[0] * p.size,
             p.at[1] - axis[1] * p.size,
@@ -4609,7 +4679,7 @@
               y1: String(a.y),
               x2: String(b.x),
               y2: String(b.y),
-              class: cls
+              class: cls + " bj-axis-" + "xyz"[i]
             })
           );
         }
@@ -4917,8 +4987,12 @@
   function bbGlobal4(name) {
     return globalThis[name] || globalThis.Blockbench?.[name];
   }
+  function humanize(key) {
+    return key.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/^./, (c) => c.toUpperCase());
+  }
   function openControllerDialog(ctx) {
     const Dialog = bbGlobal4("Dialog");
+    injectDialogStyles();
     const current = sanitizeControllerParams(ctx.kind, ctx.store.getBodyProps(ctx.uuid).controllerParams);
     const defs = ctx.kind === "character" ? CHARACTER_PARAMS : ctx.kind === "vehicle" ? VEHICLE_PARAMS : ctx.kind === "softbody" ? SOFTBODY_PARAMS : HAIR_PARAMS;
     const form = {
@@ -4935,27 +5009,28 @@
     };
     for (const p of defs) {
       addSectionHeader(p.section);
+      const label = humanize(p.key);
       if (Array.isArray(p.def)) {
         form[p.key] = {
           type: "vector",
           dimensions: 3,
-          label: p.key,
+          label,
           value: current[p.key].slice()
         };
       } else if (typeof p.def === "boolean") {
-        form[p.key] = { type: "checkbox", label: p.key, value: current[p.key] === true };
+        form[p.key] = { type: "checkbox", label, value: current[p.key] === true };
       } else if (typeof p.def === "string") {
         form[p.key] = {
           type: "select",
-          label: p.key,
-          options: { None: "None", Distance: "Distance", Dihedral: "Dihedral" },
+          label,
+          options: Object.fromEntries(["None", "Distance", "Dihedral"].map((v) => [v, t("bend." + v)])),
           value: current[p.key]
         };
       } else {
         const unit = p.unit === "m" ? " (m)" : p.unit === "deg" ? " (\xB0)" : "";
         form[p.key] = {
           type: "number",
-          label: p.key + unit,
+          label: label + unit,
           value: current[p.key],
           min: p.min,
           max: p.max,
@@ -4984,9 +5059,10 @@
   }
   function openBodyDialog(ctx) {
     const Dialog = bbGlobal5("Dialog");
+    injectDialogStyles();
     const props = ctx.store.getBodyProps(ctx.uuid);
     const form = {
-      header: { type: "info", text: t("panel.body", props.objectLayer), full_width: true }
+      header: { type: "info", text: t("panel.body", ctx.name || ctx.uuid.slice(0, 8)), full_width: true }
     };
     const num2 = (key, label, min, max, step) => {
       form[key] = { type: "number", label, value: props[key], min, max, step };
@@ -5118,7 +5194,12 @@
   }
   function onEditBody(uuid) {
     if (!store) return;
-    openBodyDialog({ store, uuid, notifyChanged: () => dispatch("behemiron_jolt_refresh") });
+    openBodyDialog({
+      store,
+      uuid,
+      name: bodyDisplayName(uuid),
+      notifyChanged: () => dispatch("behemiron_jolt_refresh")
+    });
   }
   function refreshViz() {
     viz?.refresh(store?.listConstraints() || []);

@@ -39,6 +39,7 @@ interface DragState {
 	field: string
 	index: number | null
 	planePoint: Vec3
+	el: SVGGElement
 }
 
 let styleInjected = false
@@ -51,17 +52,22 @@ function injectStyle(): void {
 		.behemiron_jolt_viz { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
 		.behemiron_jolt_viz .bj-c { pointer-events: auto; cursor: pointer; }
 		.behemiron_jolt_viz line, .behemiron_jolt_viz polyline, .behemiron_jolt_viz path {
-			fill: none; stroke-width: 2; vector-effect: non-scaling-stroke; stroke-linecap: round; }
-		.behemiron_jolt_viz .role-joint { color: var(--color-accent, #7cc4ff); }
-		.behemiron_jolt_viz .role-a { color: #6db3f2; }
-		.behemiron_jolt_viz .role-b { color: #63d0e6; }
+			fill: none; stroke: currentColor; stroke-width: 2; vector-effect: non-scaling-stroke; stroke-linecap: round; }
+		/* joint palette follows Godot's joint gizmo colors (light blues); anchor crosses use the RGB axis hues */
+		.behemiron_jolt_viz .role-joint { color: var(--color-accent, #80ccff); }
+		.behemiron_jolt_viz .role-a { color: #8fb8ff; }
+		.behemiron_jolt_viz .role-b { color: #63d8e8; }
+		.behemiron_jolt_viz .bj-axis-x { color: #e05555; }
+		.behemiron_jolt_viz .bj-axis-y { color: #6fbf67; }
+		.behemiron_jolt_viz .bj-axis-z { color: #5b8dd9; }
 		.behemiron_jolt_viz .bj-c { opacity: 0.45; }
-		.behemiron_jolt_viz .bj-c.active { opacity: 1; }
+		.behemiron_jolt_viz .bj-c.active { opacity: 1; filter: drop-shadow(0 0 3px rgba(124, 196, 255, 0.5)); }
 		.behemiron_jolt_viz .bj-c.active line, .behemiron_jolt_viz .bj-c.active polyline, .behemiron_jolt_viz .bj-c.active path { stroke-width: 2.75; }
 		.behemiron_jolt_viz .bj-c:hover { opacity: 1; }
 		.behemiron_jolt_viz .bj-handle { cursor: grab; pointer-events: auto; }
+		.behemiron_jolt_viz .bj-handle.dragging { cursor: grabbing; }
 		.behemiron_jolt_viz .bj-handle rect { fill: var(--color-accent, #7cc4ff); stroke: #fff; stroke-width: 1; }
-		.behemiron_jolt_viz .bj-handle:hover rect { fill: #fff; }
+		.behemiron_jolt_viz .bj-handle:hover rect, .behemiron_jolt_viz .bj-handle.dragging rect { fill: #fff; }
 		.behemiron_jolt_viz .bj-debug line { stroke: var(--color-accent, #7cc4ff); stroke-dasharray: 4 3; opacity: 0.8; }
 		.behemiron_jolt_viz .bj-sensor { fill: none; stroke: var(--color-accent, #7cc4ff); stroke-width: 2; opacity: 0.5; }
 		.behemiron_jolt_viz .bj-sensor.active { fill: var(--color-accent, #7cc4ff); opacity: 1; }
@@ -167,15 +173,17 @@ export function createViz(deps: VizDeps): ConstraintViz {
 					transform: `rotate(45 ${s.x} ${s.y})`
 				})
 			)
-			g.appendChild(el('circle', { cx: String(s.x), cy: String(s.y), r: '9', fill: 'transparent' }))
+			g.appendChild(el('circle', { cx: String(s.x), cy: String(s.y), r: '12', fill: 'transparent' }))
 			g.addEventListener('pointerdown', (event: Event) => {
 				event.stopPropagation()
 				event.preventDefault()
+				g.classList.add('dragging')
 				drag = {
 					constraintId: constraint.id,
 					field: handle.field,
 					index: handle.index,
-					planePoint: handle.position.slice()
+					planePoint: handle.position.slice(),
+					el: g
 				}
 				window.addEventListener('pointermove', onDragMove)
 				window.addEventListener('pointerup', onDragEnd, { once: true })
@@ -194,6 +202,7 @@ export function createViz(deps: VizDeps): ConstraintViz {
 	}
 
 	function onDragEnd(): void {
+		drag?.el.classList.remove('dragging')
 		drag = null
 		window.removeEventListener('pointermove', onDragMove)
 	}
@@ -234,11 +243,13 @@ export function createViz(deps: VizDeps): ConstraintViz {
 				el('line', { x1: String(a.x), y1: String(a.y), x2: String(b.x), y2: String(b.y), class: cls })
 			)
 		} else if (p.kind === 'cross') {
-			for (const axis of [
+			const axes: [number, number, number][] = [
 				[1, 0, 0],
 				[0, 1, 0],
 				[0, 0, 1]
-			]) {
+			]
+			for (let i = 0; i < axes.length; i++) {
+				const axis = axes[i]
 				const a = deps.projectPoint([
 					p.at[0] - axis[0] * p.size,
 					p.at[1] - axis[1] * p.size,
@@ -256,7 +267,7 @@ export function createViz(deps: VizDeps): ConstraintViz {
 						y1: String(a.y),
 						x2: String(b.x),
 						y2: String(b.y),
-						class: cls
+						class: cls + ' bj-axis-' + 'xyz'[i]
 					})
 				)
 			}

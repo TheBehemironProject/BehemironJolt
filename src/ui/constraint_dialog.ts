@@ -34,6 +34,28 @@ function bbGlobal(name: string): AnyBB {
 	return (globalThis as any)[name] || (globalThis as any).Blockbench?.[name]
 }
 
+let dialogStylesInjected = false
+// Godot-inspector style grouping inside our dialogs: section titles get an accent bar, the summary
+// header line gets the accent tint. Scoped to this plugin's <dialog id="behemiron_jolt_*"> nodes.
+export function injectDialogStyles(): void {
+	if (dialogStylesInjected) return
+	dialogStylesInjected = true
+	// hot reload re-evaluates the module (flag resets) — replace by id instead of stacking <style> tags
+	document.getElementById('behemiron_jolt_dialog_styles')?.remove()
+	const css = `
+		dialog[id^='behemiron_jolt_'] .form_bar_header .small_text { color: var(--color-accent); font-weight: 600; }
+		dialog[id^='behemiron_jolt_'] [class*='form_bar___head_'] .small_text {
+			display: block; margin-top: 10px; padding: 4px 0 4px 9px;
+			border-left: 3px solid var(--color-accent);
+			font-weight: 600; letter-spacing: 0.05em; opacity: 0.9;
+		}
+	`
+	const style = document.createElement('style')
+	style.id = 'behemiron_jolt_dialog_styles'
+	style.textContent = css
+	document.head.appendChild(style)
+}
+
 function parseVec6(text: unknown, fallback: (number | null)[]): (number | null)[] {
 	if (typeof text !== 'string' || !text.trim()) return fallback.slice()
 	const parts = text.split(',').map(s => s.trim())
@@ -56,6 +78,7 @@ function formatVec6(values: (number | null)[]): string {
 // ctx: editor dependencies
 export function openConstraintWizard(ctx: EditorCtx): void {
 	const Dialog = bbGlobal('Dialog')
+	injectDialogStyles()
 	const groups = ctx.getSelection().groups
 	if (groups.length !== 2) {
 		ctx.showMessage(t('msg.select_two_groups'))
@@ -71,7 +94,7 @@ export function openConstraintWizard(ctx: EditorCtx): void {
 			info: { type: 'info', text: `${gA.name} ↔ ${gB.name}` },
 			type: {
 				type: 'select',
-				label: t('dialog.new_constraint'),
+				label: t('dialog.constraint_type'),
 				options: Object.fromEntries(CONSTRAINT_TYPE_NAMES.map(name => [name, typeLabel(name)]))
 			},
 			anchor_info: { type: 'info', text: t('dialog.anchor_info') }
@@ -87,6 +110,7 @@ export function openConstraintWizard(ctx: EditorCtx): void {
 // editor: if constraint.id already in store → prefill and update on confirm; else insert.
 export function openConstraintEditor(ctx: EditorCtx, constraint: ConstraintData): void {
 	const Dialog = bbGlobal('Dialog')
+	injectDialogStyles()
 	const meta: ConstraintTypeMeta = CONSTRAINT_TYPES[constraint.type]
 	const existing = !!ctx.store.getConstraint(constraint.id)
 
