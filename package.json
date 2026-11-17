@@ -1,0 +1,30 @@
+{
+	"name": "behemiron-jolt",
+	"version": "0.1.0",
+	"private": true,
+	"description": "BlockBench plugin: full Jolt Physics support",
+	"type": "module",
+	"scripts": {
+		"build": "node esbuild.config.mjs",
+		"build:min": "node esbuild.config.mjs --minify",
+		"test": "node --test \"test/*.test.js\"",
+		"typecheck": "tsc --noEmit",
+		"watch": "node esbuild.config.mjs --watch",
+		"lint": "eslint --max-warnings=0 src test",
+		"lint:fix": "eslint --fix src test",
+		"format": "prettier --write \"src/**/*.{ts,js}\" \"test/**/*.js\" \"*.{js,mjs,json}\" \"docs/**/*.md\"",
+		"format:check": "prettier --check \"src/**/*.{ts,js}\" \"test/**/*.js\" \"*.{js,mjs,json}\" \"docs/**/*.md\"",
+		"test:bb": "node scripts/bb_test.mjs",
+		"bench": "node scripts/benchmark.mjs"
+	},
+	"devDependencies": {
+		"@typescript-eslint/eslint-plugin": "^8.73.0",
+		"@typescript-eslint/parser": "^8.73.0",
+		"blockbench-types": "^5.2.1",
+		"esbuild": "^0.24.0",
+		"eslint": "^10.15.0",
+		"jolt-physics": "^1.1.1",
+		"prettier": "^3.10.1",
+		"typescript": "~5.6"
+	}
+}
