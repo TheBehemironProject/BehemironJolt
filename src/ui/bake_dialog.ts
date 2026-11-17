@@ -52,6 +52,10 @@ export function openBakeDialog(ctx: BakeCtx): void {
 				dialog.close()
 			})
 			return false // keep the dialog open (progress bar lives here)
+		},
+		onCancel() {
+			// Cancel button, X button and Esc all route through onCancel — refuse mid-bake closes
+			if (baking) return false
 		}
 	})
 	dialog.show()
@@ -59,13 +63,23 @@ export function openBakeDialog(ctx: BakeCtx): void {
 
 let baking = false
 
+function setButtonsEnabled(dialog: AnyBB, enabled: boolean): void {
+	const buttons: NodeListOf<HTMLButtonElement> | undefined =
+		dialog.object?.querySelectorAll?.('.button_bar button')
+	buttons?.forEach(button => {
+		button.disabled = !enabled
+	})
+}
+
 async function runBake(ctx: BakeCtx, dialog: AnyBB, opts: Record<string, any>): Promise<void> {
 	if (baking) return // re-entrancy guard: a second Confirm must not start a concurrent bake
 	baking = true
+	setButtonsEnabled(dialog, false)
 	try {
 		await runBakeInner(ctx, dialog, opts)
 	} finally {
 		baking = false
+		setButtonsEnabled(dialog, true)
 	}
 }
 
@@ -81,7 +95,7 @@ async function runBakeInner(ctx: BakeCtx, dialog: AnyBB, opts: Record<string, an
 	})
 	if (!bodies.length) {
 		ctx.showMessage(t('bake.no_bodies'), 5000)
-		dialog.close()
+		dialog.hide() // programmatic close bypasses the onCancel mid-bake guard
 		return
 	}
 	const constraints = ctx.store
@@ -95,7 +109,7 @@ async function runBakeInner(ctx: BakeCtx, dialog: AnyBB, opts: Record<string, an
 		Jolt = await loadJolt()
 	} catch (err: any) {
 		ctx.showMessage(t('msg.load_failed', String(err?.message || err)), 8000)
-		dialog.close()
+		dialog.hide() // programmatic close bypasses the onCancel mid-bake guard
 		return
 	}
 
@@ -172,7 +186,7 @@ async function runBakeInner(ctx: BakeCtx, dialog: AnyBB, opts: Record<string, an
 	Undo.finishEdit(t('bake.undo'), { animations: [animation] })
 	animation.select?.()
 
-	dialog.close()
+	dialog.hide() // programmatic close bypasses the onCancel mid-bake guard
 	ctx.showMessage(t('bake.done', bodies.length, setup.duration), 5000)
 	;(globalThis as any).Blockbench?.dispatchEvent?.('behemiron_jolt_refresh')
 }

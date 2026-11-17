@@ -59,7 +59,9 @@ export function openControllerDialog(ctx: ControllerDialogCtx): void {
 	}
 	for (const p of defs) {
 		addSectionHeader(p.section)
-		const label = humanize(p.key)
+		const labelKey = 'param.' + p.key
+		const translated = t(labelKey)
+		const label = translated === labelKey ? humanize(p.key) : translated
 		if (Array.isArray(p.def)) {
 			form[p.key] = {
 				type: 'vector',

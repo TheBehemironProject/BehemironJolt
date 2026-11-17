@@ -3414,6 +3414,53 @@
     "bend.None": "None",
     "bend.Distance": "Distance",
     "bend.Dihedral": "Dihedral",
+    "param.up": "Up",
+    "param.radius": "Radius",
+    "param.height": "Height",
+    "param.mass": "Mass",
+    "param.maxSlopeAngle": "Max Slope Angle",
+    "param.maxStrength": "Max Strength",
+    "param.characterPadding": "Character Padding",
+    "param.maxSeparationDistance": "Max Separation Distance",
+    "param.jumpSpeed": "Jump Speed",
+    "param.maxTorque": "Max Torque",
+    "param.minRPM": "Min RPM",
+    "param.maxRPM": "Max RPM",
+    "param.inertia": "Inertia",
+    "param.angularDamping": "Angular Damping",
+    "param.clutchStrength": "Clutch Strength",
+    "param.gearCount": "Gear Count",
+    "param.gearSwitchTime": "Gear Switch Time",
+    "param.maxSteeringAngle": "Max Steering Angle",
+    "param.wheelRadius": "Wheel Radius",
+    "param.wheelWidth": "Wheel Width",
+    "param.maxWheelTorque": "Max Wheel Torque",
+    "param.suspensionMinLength": "Suspension Min Length",
+    "param.suspensionMaxLength": "Suspension Max Length",
+    "param.suspensionSpringFrequency": "Suspension Spring Frequency",
+    "param.suspensionSpringDamping": "Suspension Spring Damping",
+    "param.brakeTorque": "Brake Torque",
+    "param.handBrakeTorque": "Hand Brake Torque",
+    "param.wheelFriction": "Wheel Friction",
+    "param.edgeCompliance": "Edge Compliance",
+    "param.bendType": "Bend Type",
+    "param.bendCompliance": "Bend Compliance",
+    "param.volumeCompliance": "Volume Compliance",
+    "param.useVolumeConstraints": "Use Volume Constraints",
+    "param.linearDamping": "Linear Damping",
+    "param.pressure": "Pressure",
+    "param.vertexMass": "Vertex Mass",
+    "param.strandCount": "Strand Count",
+    "param.segmentsPerStrand": "Segments per Strand",
+    "param.strandLength": "Strand Length",
+    "param.rootRadius": "Root Radius",
+    "param.rootInvMass": "Root Inverse Mass",
+    "param.iterationsPerSecond": "Iterations per Second",
+    "param.friction": "Friction",
+    "param.enableLRA": "Enable LRA",
+    "param.enableCollision": "Enable Collision",
+    "param.gravityFactorMin": "Gravity Factor Min",
+    "param.gravityFactorMax": "Gravity Factor Max",
     "section.anchors": "Anchors",
     "section.limits": "Limits",
     "section.motor": "Motor",
@@ -3620,6 +3667,53 @@
     "bend.None": "\u65E0",
     "bend.Distance": "\u8DDD\u79BB",
     "bend.Dihedral": "\u4E8C\u9762\u89D2",
+    "param.up": "\u4E0A\u65B9\u5411",
+    "param.radius": "\u534A\u5F84",
+    "param.height": "\u8EAB\u9AD8",
+    "param.mass": "\u8D28\u91CF",
+    "param.maxSlopeAngle": "\u6700\u5927\u5761\u5EA6\u89D2",
+    "param.maxStrength": "\u6700\u5927\u5F3A\u5EA6",
+    "param.characterPadding": "\u89D2\u8272\u95F4\u8DDD",
+    "param.maxSeparationDistance": "\u6700\u5927\u5206\u79BB\u8DDD\u79BB",
+    "param.jumpSpeed": "\u8DF3\u8DC3\u901F\u5EA6",
+    "param.maxTorque": "\u6700\u5927\u626D\u77E9",
+    "param.minRPM": "\u6700\u5C0F\u8F6C\u901F",
+    "param.maxRPM": "\u6700\u5927\u8F6C\u901F",
+    "param.inertia": "\u8F6C\u52A8\u60EF\u91CF",
+    "param.angularDamping": "\u89D2\u963B\u5C3C",
+    "param.clutchStrength": "\u79BB\u5408\u5668\u5F3A\u5EA6",
+    "param.gearCount": "\u6863\u4F4D\u6570\u91CF",
+    "param.gearSwitchTime": "\u6362\u6321\u65F6\u95F4",
+    "param.maxSteeringAngle": "\u6700\u5927\u8F6C\u5411\u89D2",
+    "param.wheelRadius": "\u8F66\u8F6E\u534A\u5F84",
+    "param.wheelWidth": "\u8F66\u8F6E\u5BBD\u5EA6",
+    "param.maxWheelTorque": "\u6700\u5927\u8F66\u8F6E\u626D\u77E9",
+    "param.suspensionMinLength": "\u60AC\u6302\u6700\u5C0F\u957F\u5EA6",
+    "param.suspensionMaxLength": "\u60AC\u6302\u6700\u5927\u957F\u5EA6",
+    "param.suspensionSpringFrequency": "\u60AC\u6302\u5F39\u7C27\u9891\u7387",
+    "param.suspensionSpringDamping": "\u60AC\u6302\u5F39\u7C27\u963B\u5C3C",
+    "param.brakeTorque": "\u5239\u8F66\u626D\u77E9",
+    "param.handBrakeTorque": "\u624B\u5239\u626D\u77E9",
+    "param.wheelFriction": "\u8F66\u8F6E\u6469\u64E6",
+    "param.edgeCompliance": "\u8FB9\u7F18\u67D4\u5EA6",
+    "param.bendType": "\u5F2F\u66F2\u7C7B\u578B",
+    "param.bendCompliance": "\u5F2F\u66F2\u67D4\u5EA6",
+    "param.volumeCompliance": "\u4F53\u79EF\u67D4\u5EA6",
+    "param.useVolumeConstraints": "\u542F\u7528\u4F53\u79EF\u7EA6\u675F",
+    "param.linearDamping": "\u7EBF\u6027\u963B\u5C3C",
+    "param.pressure": "\u538B\u529B",
+    "param.vertexMass": "\u9876\u70B9\u8D28\u91CF",
+    "param.strandCount": "\u53D1\u675F\u6570\u91CF",
+    "param.segmentsPerStrand": "\u6BCF\u675F\u5206\u6BB5\u6570",
+    "param.strandLength": "\u53D1\u675F\u957F\u5EA6",
+    "param.rootRadius": "\u53D1\u6839\u534A\u5F84",
+    "param.rootInvMass": "\u53D1\u6839\u9006\u8D28\u91CF",
+    "param.iterationsPerSecond": "\u8FED\u4EE3\u9891\u7387\uFF08\u6B21/\u79D2\uFF09",
+    "param.friction": "\u6469\u64E6",
+    "param.enableLRA": "\u542F\u7528 LRA \u7EA6\u675F",
+    "param.enableCollision": "\u542F\u7528\u78B0\u649E",
+    "param.gravityFactorMin": "\u91CD\u529B\u7CFB\u6570\u4E0B\u9650",
+    "param.gravityFactorMax": "\u91CD\u529B\u7CFB\u6570\u4E0A\u9650",
     "section.anchors": "\u951A\u70B9",
     "section.limits": "\u9650\u4F4D",
     "section.motor": "\u9A6C\u8FBE",
@@ -3752,7 +3846,9 @@
 		#panel_behemiron_jolt .numeric_input_slider { display: none; }
 		#panel_behemiron_jolt .dialog_form_buttons { display: flex; flex-wrap: wrap; gap: 4px; }
 		#panel_behemiron_jolt .dialog_form_buttons button { white-space: nowrap; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-		#panel_behemiron_jolt .form_bar_header .small_text { color: var(--color-accent); font-weight: 600; }
+		// dual-view keys carry a 'g1.'/'g2.' prefix \u2192 BB's class token is 'form_bar_g1.header' (literal
+		// dot), so match the header bars by attribute instead of a class selector
+		#panel_behemiron_jolt [class*='form_bar_'][class*='header'] .small_text { color: var(--color-accent); font-weight: 600; }
 		#panel_behemiron_jolt .behemiron_jolt_status { padding: 4px 8px; font-size: 11px; opacity: 0.8; border-top: 1px solid var(--color-border); min-height: 20px; }
 		#panel_behemiron_jolt .behemiron_jolt_status .bj-status-mode.is-running { color: var(--color-accent); font-weight: 600; }
 	`;
@@ -4876,18 +4972,29 @@
           dialog.close();
         });
         return false;
+      },
+      onCancel() {
+        if (baking) return false;
       }
     });
     dialog.show();
   }
   var baking = false;
+  function setButtonsEnabled(dialog, enabled) {
+    const buttons = dialog.object?.querySelectorAll?.(".button_bar button");
+    buttons?.forEach((button) => {
+      button.disabled = !enabled;
+    });
+  }
   async function runBake(ctx, dialog, opts) {
     if (baking) return;
     baking = true;
+    setButtonsEnabled(dialog, false);
     try {
       await runBakeInner(ctx, dialog, opts);
     } finally {
       baking = false;
+      setButtonsEnabled(dialog, true);
     }
   }
   async function runBakeInner(ctx, dialog, opts) {
@@ -4901,7 +5008,7 @@
     });
     if (!bodies.length) {
       ctx.showMessage(t("bake.no_bodies"), 5e3);
-      dialog.close();
+      dialog.hide();
       return;
     }
     const constraints = ctx.store.listConstraints().map((c) => sanitizeConstraint(c)).filter((c) => !!c).map((c) => constraintToExport(c, pipeline.scale));
@@ -4910,7 +5017,7 @@
       Jolt = await loadJolt();
     } catch (err) {
       ctx.showMessage(t("msg.load_failed", String(err?.message || err)), 8e3);
-      dialog.close();
+      dialog.hide();
       return;
     }
     const setup = planBake(Number(opts.duration) || 5, Number(opts.fps) || 20);
@@ -4978,7 +5085,7 @@
     animation.add?.(false);
     Undo.finishEdit(t("bake.undo"), { animations: [animation] });
     animation.select?.();
-    dialog.close();
+    dialog.hide();
     ctx.showMessage(t("bake.done", bodies.length, setup.duration), 5e3);
     globalThis.Blockbench?.dispatchEvent?.("behemiron_jolt_refresh");
   }
@@ -5009,7 +5116,9 @@
     };
     for (const p of defs) {
       addSectionHeader(p.section);
-      const label = humanize(p.key);
+      const labelKey = "param." + p.key;
+      const translated = t(labelKey);
+      const label = translated === labelKey ? humanize(p.key) : translated;
       if (Array.isArray(p.def)) {
         form[p.key] = {
           type: "vector",

@@ -76,7 +76,9 @@ export function createPanel(ctx: PanelCtx): PanelApi {
 		#panel_behemiron_jolt .numeric_input_slider { display: none; }
 		#panel_behemiron_jolt .dialog_form_buttons { display: flex; flex-wrap: wrap; gap: 4px; }
 		#panel_behemiron_jolt .dialog_form_buttons button { white-space: nowrap; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-		#panel_behemiron_jolt .form_bar_header .small_text { color: var(--color-accent); font-weight: 600; }
+		// dual-view keys carry a 'g1.'/'g2.' prefix → BB's class token is 'form_bar_g1.header' (literal
+		// dot), so match the header bars by attribute instead of a class selector
+		#panel_behemiron_jolt [class*='form_bar_'][class*='header'] .small_text { color: var(--color-accent); font-weight: 600; }
 		#panel_behemiron_jolt .behemiron_jolt_status { padding: 4px 8px; font-size: 11px; opacity: 0.8; border-top: 1px solid var(--color-border); min-height: 20px; }
 		#panel_behemiron_jolt .behemiron_jolt_status .bj-status-mode.is-running { color: var(--color-accent); font-weight: 600; }
 	`
