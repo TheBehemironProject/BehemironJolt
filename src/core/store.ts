@@ -54,8 +54,20 @@ export interface BodyProps {
 	controller: ControllerType
 	/** B4: controller parameters (character/vehicle); defaults merged at use time */
 	controllerParams: Record<string, number | number[] | boolean>
+	/** collision group id: bodies in the same group never collide with each other (0 = no grouping) */
+	collisionGroup: number
+	/** true = this body collides with other bodies of the same model instance (default off) */
+	selfCollide: boolean
 }
 
+/** Runtime physics state preset: per-body motion overrides applied as a group (ragdoll, prop-drop…). */
+export interface PhysicsStateDef {
+	name: string
+	/** per-outliner-uuid body overrides; only listed keys replace the base body's props */
+	bodies: Record<string, Partial<BodyProps>>
+	/** constraint ids removed when the state activates (e.g. detach props) */
+	breakConstraints: string[]
+}
 export const CONTROLLER_TYPES = ['none', 'character', 'vehicle', 'softbody', 'hair'] as const
 export type ControllerType = (typeof CONTROLLER_TYPES)[number]
 
@@ -72,6 +84,8 @@ export interface ConstraintData {
 	bodyA: string
 	bodyB: string
 	space: string
+	/** impulse threshold (N·s) at which the engine removes this constraint; null/absent/0/negative = never */
+	breakImpulse?: number | null
 	[key: string]: unknown
 }
 
@@ -81,6 +95,8 @@ export interface StoreData {
 	bodies: Record<string, BodyProps>
 	constraints: ConstraintData[]
 	settings: Settings
+	/** named runtime physics states (ragdoll groups etc.); absent in old files = none */
+	states?: Record<string, PhysicsStateDef>
 }
 
 export interface StoreCounts {
@@ -100,6 +116,10 @@ export interface PhysicsStore {
 	removeConstraint(id: string): void
 	getSettings(): Settings
 	setSettings(patch: Partial<Settings>): void
+	listStates(): PhysicsStateDef[]
+	getState(name: string): PhysicsStateDef | null
+	upsertState(state: PhysicsStateDef): void
+	removeState(name: string): void
 	counts(): StoreCounts
 	serialize(): StoreData
 	load(raw: unknown): void
@@ -125,7 +145,9 @@ export const DEFAULT_BODY_PROPS: BodyProps = Object.freeze({
 	inertiaMultiplier: 1,
 	animationDriven: false,
 	controller: 'none',
-	controllerParams: {}
+	controllerParams: {},
+	collisionGroup: 0,
+	selfCollide: false
 })
 
 export const DEFAULT_SETTINGS: Settings = Object.freeze({
@@ -142,7 +164,8 @@ const BODY_NUMBER_RANGES: Record<string, [number, number]> = {
 	angularDamping: [0, 100],
 	gravityFactor: [-100, 100],
 	mass: [0.000001, 1e12],
-	inertiaMultiplier: [0.000001, 1e6]
+	inertiaMultiplier: [0.000001, 1e6],
+	collisionGroup: [0, 0xffff]
 }
 
 function coerceBoolean(value: unknown, fallback: boolean): boolean {
@@ -193,12 +216,42 @@ export function sanitizeBodyProps(raw: unknown): BodyProps {
 	}
 	out.motionType = coerceEnum(r.motionType, MOTION_TYPES, DEFAULT_BODY_PROPS.motionType)
 	out.motionQuality = coerceEnum(r.motionQuality, MOTION_QUALITIES, DEFAULT_BODY_PROPS.motionQuality)
+	out.selfCollide = coerceBoolean(r.selfCollide, DEFAULT_BODY_PROPS.selfCollide)
 	out.overrideMassProperties = coerceEnum(
 		r.overrideMassProperties,
 		OVERRIDE_MODES,
 		DEFAULT_BODY_PROPS.overrideMassProperties
 	)
 	return out as unknown as BodyProps
+}
+
+/** State preset sanitize: non-empty name, per-body overrides validated key-by-key,
+ * breakConstraints keeps string ids only. */
+export function sanitizePhysicsState(raw: unknown): PhysicsStateDef | null {
+	const r = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null
+	if (!r || typeof r.name !== 'string' || !r.name.trim()) return null
+	const bodies: Record<string, Partial<BodyProps>> = {}
+	if (r.bodies && typeof r.bodies === 'object' && !Array.isArray(r.bodies)) {
+		for (const [uuid, patchRaw] of Object.entries(r.bodies as Record<string, unknown>)) {
+			if (!uuid || patchRaw === null || typeof patchRaw !== 'object' || Array.isArray(patchRaw))
+				continue
+			// Validate each present key (clamped to its range) but carry only keys that actually
+			// appear in the patch — unlisted keys must not shadow the base body's values.
+			const sanitized = sanitizeBodyProps(patchRaw)
+			const override: Partial<BodyProps> = {}
+			for (const key of Object.keys(patchRaw)) {
+				if (key in sanitized)
+					(override as unknown as Record<string, unknown>)[key] = (
+						sanitized as unknown as Record<string, unknown>
+					)[key]
+			}
+			bodies[uuid] = override
+		}
+	}
+	const breakConstraints = Array.isArray(r.breakConstraints)
+		? (r.breakConstraints as unknown[]).filter((v): v is string => typeof v === 'string')
+		: []
+	return { name: r.name.trim(), bodies, breakConstraints }
 }
 
 export function sanitizeSettings(raw: unknown): Settings {
@@ -224,7 +277,8 @@ export function createStore(): PhysicsStore {
 			elements: {},
 			bodies: {},
 			constraints: [],
-			settings: { ...DEFAULT_SETTINGS }
+			settings: { ...DEFAULT_SETTINGS },
+			states: {}
 		}
 	}
 
@@ -265,6 +319,30 @@ export function createStore(): PhysicsStore {
 		setSettings(patch: Partial<Settings>) {
 			data.settings = sanitizeSettings({ ...data.settings, ...patch })
 		},
+		listStates(): PhysicsStateDef[] {
+			return Object.values(data.states ?? {}).map(s => ({
+				name: s.name,
+				bodies: JSON.parse(JSON.stringify(s.bodies)),
+				breakConstraints: s.breakConstraints.slice()
+			}))
+		},
+		getState(name: string): PhysicsStateDef | null {
+			const s = data.states?.[name]
+			return s
+				? {
+						name: s.name,
+						bodies: JSON.parse(JSON.stringify(s.bodies)),
+						breakConstraints: s.breakConstraints.slice()
+					}
+				: null
+		},
+		upsertState(state: PhysicsStateDef) {
+			const clean = sanitizePhysicsState(state)
+			if (clean && data.states) data.states[clean.name] = clean
+		},
+		removeState(name: string) {
+			if (data.states) delete data.states[name]
+		},
 		counts(): StoreCounts {
 			return {
 				elements: Object.keys(data.elements).length,
@@ -298,6 +376,15 @@ export function createStore(): PhysicsStore {
 					.map(c => ({ ...c }))
 			}
 			if (r.settings) data.settings = sanitizeSettings(r.settings)
+			if (r.states && typeof r.states === 'object' && !Array.isArray(r.states)) {
+				for (const [name, raw] of Object.entries(r.states as Record<string, unknown>)) {
+					const clean = sanitizePhysicsState({
+						...(raw as object),
+						name: (raw as { name?: unknown })?.name ?? name
+					})
+					if (clean && data.states) data.states[clean.name] = clean
+				}
+			}
 		},
 		reset() {
 			data = freshData()

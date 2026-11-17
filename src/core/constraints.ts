@@ -479,6 +479,9 @@ export function makeConstraint(
 	if (type === 'Distance') {
 		constraint.maxDistance = Math.hypot(comB[0] - comA[0], comB[1] - comA[1], comB[2] - comA[2])
 	}
+	// Common optional field: break threshold (engine removes the constraint when the
+	// constraint impulse exceeds it); unset = never breaks
+	constraint.breakImpulse = null
 	return constraint
 }
 
@@ -499,6 +502,13 @@ export function sanitizeConstraint(raw: unknown): ConstraintData | null {
 		bodyA: r.bodyA,
 		bodyB: r.bodyB,
 		space: CONSTRAINT_SPACE
+	}
+	// Common optional field: break threshold; empty / non-finite / <=0 collapses to null (never breaks)
+	{
+		const raw = r.breakImpulse
+		const n = Number(raw)
+		out.breakImpulse =
+			raw !== null && raw !== undefined && raw !== '' && Number.isFinite(n) && n > 0 ? n : null
 	}
 	for (const field of meta.fields) {
 		const value: unknown = r[field.key]

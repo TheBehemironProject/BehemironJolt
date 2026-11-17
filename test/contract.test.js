@@ -103,3 +103,13 @@ test('Hinge limits: degrees in storage, radians in contract, null preserved', ()
 	assert.ok(Math.abs(out.limitsMin + Math.PI / 4) < 1e-9)
 	assert.equal(out.limitsMax, null)
 })
+
+test('constraint breakImpulse sanitize: positive kept, junk collapses to null', async () => {
+	const { sanitizeConstraint } = await import('../src/core/constraints.ts')
+	const base = { id: 'c', type: 'Point', bodyA: 'a', bodyB: 'b' }
+	assert.equal(sanitizeConstraint({ ...base, breakImpulse: 120 })?.breakImpulse, 120)
+	assert.equal(sanitizeConstraint({ ...base, breakImpulse: 0 })?.breakImpulse, null)
+	assert.equal(sanitizeConstraint({ ...base, breakImpulse: -5 })?.breakImpulse, null)
+	assert.equal(sanitizeConstraint({ ...base, breakImpulse: 'x' })?.breakImpulse, null)
+	assert.equal(sanitizeConstraint(base)?.breakImpulse, null)
+})

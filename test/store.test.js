@@ -111,3 +111,56 @@ test('validate catches dangling constraint refs', () => {
 	assert.equal(errors.length, 1)
 	assert.ok(errors[0].includes('missing'))
 })
+
+test('body collisionGroup clamps and selfCollide defaults', () => {
+	const store = createStore()
+	store.setBodyProps('b', { collisionGroup: 999999, selfCollide: true })
+	assert.equal(store.getBodyProps('b').collisionGroup, 0xffff)
+	assert.equal(store.getBodyProps('b').selfCollide, true)
+	assert.equal(store.getBodyProps('other').collisionGroup, 0)
+	assert.equal(store.getBodyProps('other').selfCollide, false)
+})
+
+test('physics states round-trip through serialize/load', () => {
+	const store = createStore()
+	store.setBodyProps('torso', { motionType: 'Kinematic' })
+	store.upsertState({
+		name: 'ragdoll',
+		bodies: { torso: { motionType: 'Dynamic' } },
+		breakConstraints: ['c_prop']
+	})
+	const serialized = store.serialize()
+	assert.ok(serialized.states)
+	assert.equal(serialized.states.ragdoll.bodies.torso.motionType, 'Dynamic')
+	assert.equal(serialized.states.ragdoll.bodies.torso.friction, undefined, 'unlisted keys stay unlisted')
+
+	const reloaded = createStore()
+	reloaded.load(JSON.parse(JSON.stringify(serialized)))
+	const state = reloaded.getState('ragdoll')
+	assert.ok(state)
+	assert.equal(state.bodies.torso.motionType, 'Dynamic')
+	assert.deepEqual(state.breakConstraints, ['c_prop'])
+	assert.equal(reloaded.listStates().length, 1)
+})
+
+test('physics state sanitize: garbage bodies dropped, unnamed rejected', () => {
+	const store = createStore()
+	store.upsertState({
+		name: '  ',
+		bodies: { x: { motionType: 'Dynamic' } },
+		breakConstraints: ['c']
+	})
+	assert.equal(store.listStates().length, 0)
+
+	store.upsertState({
+		name: 'ok',
+		bodies: { x: { motionType: 'Bogus', friction: 42 }, bad: null },
+		breakConstraints: ['c', 7, 'd']
+	})
+	const state = store.getState('ok')
+	assert.ok(state)
+	assert.equal(state.bodies.x.motionType, 'Dynamic', 'bogus enum falls back')
+	assert.equal(state.bodies.x.friction, 1, 'clamped to [0,1]')
+	assert.equal(state.bodies.bad, undefined)
+	assert.deepEqual(state.breakConstraints, ['c', 'd'])
+})
