@@ -31,8 +31,9 @@ export function openStatesDialog(ctx: StatesDialogCtx): void {
 	const Dialog = bbGlobal('Dialog')
 	injectDialogStyles()
 	const states = ctx.store.listStates()
-	const form: Record<string, any> = {
-		header: { type: 'info', text: states.length ? '' : t('dialog.state_none'), full_width: true }
+	const form: Record<string, any> = {}
+	if (!states.length) {
+		form.header = { type: 'info', text: t('dialog.state_none'), full_width: true }
 	}
 	states.forEach((state, i) => {
 		form[`state_${i}`] = {

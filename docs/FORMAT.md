@@ -122,8 +122,8 @@ Overrides are validated per key (same ranges as BodyProps) but **only listed
 keys replace the base body's values** — unlisted keys keep the base body's
 configuration. The engine activates a state by applying the overrides (with
 continuity: current pose seeds the physics state) and removing the listed
-constraints. Authoring UIs are a plugin-side follow-up; the data contract is
-final.
+constraints. Authoring UI: the plugin's Physics States dialog (per-body
+Dynamic overrides + constraints to break); the data contract is final.
 
 ## 6. Shape pipeline (deterministic mirror contract)
 

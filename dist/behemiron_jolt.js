@@ -5338,9 +5338,10 @@
     const Dialog = bbGlobal6("Dialog");
     injectDialogStyles();
     const states = ctx.store.listStates();
-    const form = {
-      header: { type: "info", text: states.length ? "" : t("dialog.state_none"), full_width: true }
-    };
+    const form = {};
+    if (!states.length) {
+      form.header = { type: "info", text: t("dialog.state_none"), full_width: true };
+    }
     states.forEach((state2, i) => {
       form[`state_${i}`] = {
         type: "buttons",
