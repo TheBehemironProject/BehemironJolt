@@ -94,11 +94,11 @@ pos(Vec3)+rot(Vector2)+rotLimits · `Slider` pos(Vector2)+posLimits+rot(Vec3) ·
 `Path` pos(Vector2)+posLimits+rotHinge(Vector2)+rot(Vec3) · `Pulley` pos ·
 `Gear` lambda · `RackAndPinion` lambda. Editor and engine must remove the
 constraint in the step it is exceeded (editor: `RemoveConstraint`, keeps the
-authored data untouched — breaking is runtime-only). jolt-jni already binds
-`PathConstraint`'s lambdas; the engine must add the same thin bindings for
-`FixedConstraint`, `PulleyConstraint`, `GearConstraint` and
-`RackAndPinionConstraint` (plus `Hinge/Slider/Cone/SwingTwist/SixDOF` if not
-yet present) — pure JNI pass-throughs, no Jolt C++ changes needed.
+authored data untouched — breaking is runtime-only). The BehemironJoltJNI fork
+(`com.behemiron.engine:behemiron-jolt-jni`) binds the full structural set for
+all 11 classes (`getTotalLambda*`, per-component float getters composed into
+`Vec3`/`X/Y` pairs on the Java side) — the engine reads them from the fork, no
+own JNI needed.
 
 Type-specific fields and defaults are declared in `src/core/constraints.ts`
 (`CONSTRAINT_TYPES`). Field kinds and their sanitize semantics:
