@@ -3,6 +3,7 @@
 // every wrapper object is tracked and destroyed on stop.
 
 import * as diag from '../util/diag.ts'
+import { collidePairProps } from '../core/collide.ts'
 import { CONSTRAINT_TYPES } from '../core/constraints.ts'
 import type { ExportedConstraint } from '../core/constraints.ts'
 import type { BodyDesc } from '../core/pipeline.ts'
@@ -57,6 +58,9 @@ export class SimSession {
 	private bodyInterface: any = null
 	private bodyIds: { uuid: string; name: string; id: any; ptr: any; index: number; synced: boolean }[] = []
 	private constraintPtrs: any[] = []
+	private collisionTable: any = null
+	private breakables: { ptr: any; type: string; breakImpulse: number; broken: boolean }[] = []
+	private brokenCount = 0
 	private vehicles: { constraint: any; controller: any; bodyIndex: number }[] = []
 	private characters: {
 		virtual: any
@@ -107,6 +111,13 @@ export class SimSession {
 			/* already released */
 		}
 		diag.trackFree(label)
+	}
+
+	// [Value] returns from the body interface are untracked wrappers — count them so the
+	// paired _destroy keeps the leak ledger balanced.
+	private _own<T>(obj: T, label: string): T {
+		diag.trackAlloc(label)
+		return obj
 	}
 
 	private _vec3(a: Vec3, label = 'Vec3'): any {
@@ -291,6 +302,19 @@ export class SimSession {
 
 	private _createBodies(): void {
 		const J = this.Jolt as Dyn
+		// Model-instance collision rule (FORMAT §3): one GroupFilterTable for the whole model,
+		// SubGroupID = body index + 1; the ground body stays ungrouped so model-vs-ground always collides.
+		const n = this.bodies.length
+		if (n >= 2) {
+			this.collisionTable = this._new('GroupFilterTable', () => new J.GroupFilterTable(n + 1))
+			for (let i = 0; i < n; i++) {
+				for (let j = i + 1; j < n; j++) {
+					if (!collidePairProps(this.bodies[i].props, this.bodies[j].props)) {
+						this.collisionTable.DisableCollision(i + 1, j + 1)
+					}
+				}
+			}
+		}
 		for (let i = 0; i < this.bodies.length; i++) {
 			const desc = this.bodies[i]
 			const shape = this._cookShape(desc.shape as ShapeNode)
@@ -338,6 +362,17 @@ export class SimSession {
 			const body = this.bodyInterface.CreateBody(settings)
 			this._destroy(settings, 'BodyCreationSettings')
 			this.bodyInterface.AddBody(body.GetID(), J.EActivation_Activate)
+			if (this.collisionTable) {
+				const group = this._new(
+					'CollisionGroup',
+					() => new J.CollisionGroup(this.collisionTable, 0, i + 1)
+				)
+				try {
+					this.bodyInterface.SetCollisionGroup(body.GetID(), group)
+				} finally {
+					this._destroy(group, 'CollisionGroup')
+				}
+			}
 			this.bodyIds.push({
 				uuid: desc.uuid,
 				name: desc.name,
@@ -440,6 +475,7 @@ export class SimSession {
 				() => new J.VehicleConstraint(entry.ptr, settings)
 			)
 			this.physicsSystem.AddConstraint(constraint)
+			diag.trackAlloc('Constraint') // untracked wrapper; stop() frees it
 			this.constraintPtrs.push(constraint)
 			this.vehicles.push({ constraint, controller: constraint.GetController(), bodyIndex })
 			this._destroy(settings, 'VehicleConstraintSettings')
@@ -809,8 +845,8 @@ export class SimSession {
 
 	readCharacters(cb: (uuid: string, bodyIndex: number, position: Vec3, quat: Quat) => void): void {
 		for (const character of this.characters) {
-			const pos = character.virtual.GetPosition()
-			const rot = character.virtual.GetRotation()
+			const pos = this._own(character.virtual.GetPosition(), 'RVec3')
+			const rot = this._own(character.virtual.GetRotation(), 'Quat')
 			cb(
 				character.uuid,
 				character.bodyIndex,
@@ -857,8 +893,13 @@ export class SimSession {
 				this._applyConstraintFields(settings, constraint)
 				this._applyMotorSettings(settings, constraint)
 				const ptr = this.bodyInterface.CreateConstraint(settings, idA, idB)
+				diag.trackAlloc('Constraint') // ptr is an untracked wrapper; stop() frees it
 				this.physicsSystem.AddConstraint(ptr)
 				this.constraintPtrs.push(ptr)
+				const breakImpulse = Number(constraint.breakImpulse)
+				if (Number.isFinite(breakImpulse) && breakImpulse > 0) {
+					this.breakables.push({ ptr, type: constraint.type, breakImpulse, broken: false })
+				}
 				this._startMotor(ptr, constraint)
 			} catch (err) {
 				console.warn(`behemiron_jolt: failed to create ${constraint.type} constraint`, err)
@@ -935,7 +976,8 @@ export class SimSession {
 				}
 			}
 		}
-		for (const [vec, label] of temps) this._destroy(vec, label)
+		// temps are owned and destroyed by the _applyConstraintFields finally — do NOT destroy
+		// them here (double destroy corrupts the Emscripten heap)
 	}
 
 	// MotorSettings limits on the settings object (contract values are already meters/radians)
@@ -1021,11 +1063,119 @@ export class SimSession {
 		while (this.accumulator >= STEP && n < MAX_STEPS_PER_FRAME) {
 			this._stepControllers(STEP)
 			this.jolt.Step(STEP, 1)
+			this._checkBreaks()
 			this.accumulator -= STEP
 			n++
 			this.steps++
 		}
 		return n
+	}
+
+	/** Constraints removed this session because their impulse exceeded breakImpulse. */
+	brokenConstraints(): number {
+		return this.brokenCount
+	}
+
+	// Breakable constraints (FORMAT §4.1): compare each breakable constraint's accumulated
+	// impulse against its threshold after every physics step and remove it on exceedance.
+	private _checkBreaks(): void {
+		if (!this.physicsSystem || !this.breakables.length) return
+		for (const b of this.breakables) {
+			if (b.broken) continue
+			let metric = 0
+			try {
+				metric = this._lambdaMetric(b.ptr, b.type)
+			} catch {
+				continue // binding mismatch: never break what we cannot measure
+			}
+			if (metric > b.breakImpulse) {
+				try {
+					this.physicsSystem.RemoveConstraint(b.ptr)
+				} catch {
+					/* already gone */
+				}
+				b.broken = true
+				this.brokenCount++
+			}
+		}
+	}
+
+	// Break metric: L1 sum of |lambda components| over all structural parts. Motor lambdas are
+	// excluded on purpose — driving a motor hard must not snap the joint. The engine mirrors
+	// this exact formula (docs/FORMAT.md §4.1).
+	private _lambdaMetric(ptr: any, type: string): number {
+		const J = this.Jolt as Dyn
+		const abs = Math.abs
+		const norm3 = (v: any) => {
+			const m = abs(v.GetX()) + abs(v.GetY()) + abs(v.GetZ())
+			this._destroy(this._own(v, 'Vec3'), 'Vec3')
+			return m
+		}
+		const norm2 = (v: any) => {
+			const m = abs(v.GetX()) + abs(v.GetY())
+			this._destroy(this._own(v, 'Vector2'), 'Vector2')
+			return m
+		}
+		switch (type) {
+			case 'Fixed': {
+				const c = J.castObject(ptr, J.FixedConstraint)
+				return norm3(c.GetTotalLambdaPosition()) + norm3(c.GetTotalLambdaRotation())
+			}
+			case 'Distance':
+				return abs(J.castObject(ptr, J.DistanceConstraint).GetTotalLambdaPosition())
+			case 'Point':
+				return norm3(J.castObject(ptr, J.PointConstraint).GetTotalLambdaPosition())
+			case 'Hinge': {
+				const c = J.castObject(ptr, J.HingeConstraint)
+				return (
+					norm3(c.GetTotalLambdaPosition()) +
+					norm2(c.GetTotalLambdaRotation()) +
+					abs(c.GetTotalLambdaRotationLimits())
+				)
+			}
+			case 'Slider': {
+				const c = J.castObject(ptr, J.SliderConstraint)
+				return (
+					norm2(c.GetTotalLambdaPosition()) +
+					abs(c.GetTotalLambdaPositionLimits()) +
+					norm3(c.GetTotalLambdaRotation())
+				)
+			}
+			case 'Cone': {
+				const c = J.castObject(ptr, J.ConeConstraint)
+				return norm3(c.GetTotalLambdaPosition()) + abs(c.GetTotalLambdaRotation())
+			}
+			case 'SwingTwist': {
+				const c = J.castObject(ptr, J.SwingTwistConstraint)
+				return (
+					norm3(c.GetTotalLambdaPosition()) +
+					abs(c.GetTotalLambdaTwist()) +
+					abs(c.GetTotalLambdaSwingY()) +
+					abs(c.GetTotalLambdaSwingZ())
+				)
+			}
+			case 'SixDOF': {
+				const c = J.castObject(ptr, J.SixDOFConstraint)
+				return norm3(c.GetTotalLambdaPosition()) + norm3(c.GetTotalLambdaRotation())
+			}
+			case 'Path': {
+				const c = J.castObject(ptr, J.PathConstraint)
+				return (
+					norm2(c.GetTotalLambdaPosition()) +
+					abs(c.GetTotalLambdaPositionLimits()) +
+					norm2(c.GetTotalLambdaRotationHinge()) +
+					norm3(c.GetTotalLambdaRotation())
+				)
+			}
+			case 'Pulley':
+				return abs(J.castObject(ptr, J.PulleyConstraint).GetTotalLambdaPosition())
+			case 'Gear':
+				return abs(J.castObject(ptr, J.GearConstraint).GetTotalLambda())
+			case 'RackAndPinion':
+				return abs(J.castObject(ptr, J.RackAndPinionConstraint).GetTotalLambda())
+			default:
+				return 0
+		}
 	}
 
 	// cb(uuid, index, position[m3], quat[x,y,z,w])
@@ -1040,8 +1190,8 @@ export class SimSession {
 				/* always sync */
 			}
 			if (!active && entry.synced) continue
-			const pos = this.bodyInterface.GetPosition(entry.id)
-			const rot = this.bodyInterface.GetRotation(entry.id)
+			const pos = this._own(this.bodyInterface.GetPosition(entry.id), 'RVec3')
+			const rot = this._own(this.bodyInterface.GetRotation(entry.id), 'Quat')
 			cb(
 				entry.uuid,
 				entry.index,
@@ -1057,7 +1207,7 @@ export class SimSession {
 	readLinearVelocity(uuid: string): Vec3 | null {
 		const entry = this.bodyIds.find(b => b.uuid === uuid)
 		if (!entry) return null
-		const v = this.bodyInterface.GetLinearVelocity(entry.id)
+		const v = this._own(this.bodyInterface.GetLinearVelocity(entry.id), 'Vec3')
 		const out: Vec3 = [v.GetX(), v.GetY(), v.GetZ()]
 		this._destroy(v, 'Vec3')
 		return out
@@ -1074,8 +1224,8 @@ export class SimSession {
 				/* treat as active */
 			}
 			if (!active) continue
-			const pos = this.bodyInterface.GetPosition(entry.id)
-			const vel = this.bodyInterface.GetLinearVelocity(entry.id)
+			const pos = this._own(this.bodyInterface.GetPosition(entry.id), 'RVec3')
+			const vel = this._own(this.bodyInterface.GetLinearVelocity(entry.id), 'Vec3')
 			cb(entry.uuid, [pos.GetX(), pos.GetY(), pos.GetZ()], [vel.GetX(), vel.GetY(), vel.GetZ()])
 			this._destroy(pos, 'RVec3')
 			this._destroy(vel, 'Vec3')
@@ -1271,6 +1421,12 @@ export class SimSession {
 			diag.trackFree('Constraint')
 		}
 		this.constraintPtrs = []
+		this.breakables = []
+		this.brokenCount = 0
+		if (this.collisionTable) {
+			this._destroy(this.collisionTable, 'GroupFilterTable')
+			this.collisionTable = null
+		}
 		for (const entry of this.bodyIds) {
 			try {
 				this.bodyInterface.RemoveBody(entry.id)

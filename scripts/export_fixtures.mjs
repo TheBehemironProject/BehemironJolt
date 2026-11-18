@@ -13,6 +13,7 @@ mkdirSync(outDir, { recursive: true })
 const { generateHairStrands } = await import(pathToFileURL(join(root, 'src/core/hair.ts')))
 const { buildSoftBodyMesh } = await import(pathToFileURL(join(root, 'src/core/softbody.ts')))
 const { buildBodyShape } = await import(pathToFileURL(join(root, 'src/core/shapes.ts')))
+const { collisionPairs } = await import(pathToFileURL(join(root, 'src/core/collide.ts')))
 const { makeConstraint, constraintToExport, CONSTRAINT_TYPE_NAMES } = await import(
 	pathToFileURL(join(root, 'src/core/constraints.ts'))
 )
@@ -132,4 +133,19 @@ write('constraints_export.json', {
 			SCALE
 		)
 	}))
+})
+
+// ---- collision pair rule: reference matrix for engine parity (FORMAT §3) ----
+const collisionBodies = [
+	{ name: 'A_default', collisionGroup: 0, selfCollide: false },
+	{ name: 'B_default', collisionGroup: 0, selfCollide: false },
+	{ name: 'C_self', collisionGroup: 0, selfCollide: true },
+	{ name: 'D_group1', collisionGroup: 1, selfCollide: false },
+	{ name: 'E_group1_self', collisionGroup: 1, selfCollide: true },
+	{ name: 'F_group2', collisionGroup: 2, selfCollide: false }
+]
+write('collision_matrix.json', {
+	note: 'collidePairProps: same non-zero group never collides (wins over selfCollide); else selfCollide OR.',
+	bodies: collisionBodies,
+	matrix: collisionPairs(collisionBodies)
 })

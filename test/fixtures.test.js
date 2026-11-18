@@ -19,6 +19,7 @@ async function generated() {
 	const { makeConstraint, constraintToExport, CONSTRAINT_TYPE_NAMES } = await import(
 		pathToFileURL(join(root, 'src/core/constraints.ts'))
 	)
+	const { collisionPairs } = await import(pathToFileURL(join(root, 'src/core/collide.ts')))
 	const refConstraint = type => {
 		const c = makeConstraint(type, 'bodyA', 'bodyB', { comA: anchorA, comB: anchorB })
 		c.id = `ref-${type}`
@@ -117,6 +118,20 @@ async function generated() {
 					SCALE
 				)
 			}))
+		},
+		collision_matrix: {
+			note: 'collidePairProps: same non-zero group never collides (wins over selfCollide); else selfCollide OR.',
+			bodies: [
+				{ name: 'A_default', collisionGroup: 0, selfCollide: false },
+				{ name: 'B_default', collisionGroup: 0, selfCollide: false },
+				{ name: 'C_self', collisionGroup: 0, selfCollide: true },
+				{ name: 'D_group1', collisionGroup: 1, selfCollide: false },
+				{ name: 'E_group1_self', collisionGroup: 1, selfCollide: true },
+				{ name: 'F_group2', collisionGroup: 2, selfCollide: false }
+			],
+			get matrix() {
+				return collisionPairs(this.bodies)
+			}
 		}
 	}
 }

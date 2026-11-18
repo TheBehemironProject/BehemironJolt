@@ -1,36 +1,66 @@
 {
-	"note": "buildBodyShape outputs at default scale (1/16); single centered box and two-cube compound.",
-	"singleBox": {
-		"shape": {
-			"type": "Box",
-			"halfExtents": [0.5, 0.5, 0.5],
-			"convexRadius": 0.05,
-			"density": 1000
-		},
-		"skipped": []
-	},
-	"twoCubes": {
-		"shape": {
-			"type": "StaticCompound",
-			"children": [
-				{
-					"type": "Box",
-					"halfExtents": [0.5, 0.5, 0.5],
-					"convexRadius": 0.05,
-					"position": [0, 0, 0],
-					"rotation": [0, 0, 0, 1],
-					"density": 1000
-				},
-				{
-					"type": "Box",
-					"halfExtents": [0.5, 0.5, 0.5],
-					"convexRadius": 0.05,
-					"position": [2, 0, 0],
-					"rotation": [0, 0, 0, 1],
-					"density": 1000
-				}
-			]
-		},
-		"skipped": []
-	}
+  "note": "buildBodyShape outputs at default scale (1/16); single centered box and two-cube compound.",
+  "singleBox": {
+    "shape": {
+      "type": "Box",
+      "halfExtents": [
+        0.5,
+        0.5,
+        0.5
+      ],
+      "convexRadius": 0.05,
+      "density": 1000
+    },
+    "skipped": []
+  },
+  "twoCubes": {
+    "shape": {
+      "type": "StaticCompound",
+      "children": [
+        {
+          "type": "Box",
+          "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+          ],
+          "convexRadius": 0.05,
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "density": 1000
+        },
+        {
+          "type": "Box",
+          "halfExtents": [
+            0.5,
+            0.5,
+            0.5
+          ],
+          "convexRadius": 0.05,
+          "position": [
+            2,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "density": 1000
+        }
+      ]
+    },
+    "skipped": []
+  }
 }

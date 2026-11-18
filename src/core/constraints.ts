@@ -637,6 +637,9 @@ export function constraintToExport(constraint: ConstraintData, scale: number): E
 				break
 		}
 	}
+	// Break threshold rides along for simulation/bake sessions (engine reads it from the storage form)
+	const breakImpulse = Number(constraint.breakImpulse)
+	if (Number.isFinite(breakImpulse) && breakImpulse > 0) out.breakImpulse = breakImpulse
 	return out
 }
 

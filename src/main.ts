@@ -168,6 +168,7 @@ interface SimState {
 	readBodyVelocity(uuid: string): number[] | null
 	diagInfo(): string
 	sensorInfo(): string
+	breakInfo(): string
 	driveAnimated(): void
 	toggle(): Promise<void>
 	pause(): void
@@ -200,6 +201,10 @@ const sim: SimState = {
 	},
 	sensorInfo() {
 		return sensorSummary
+	},
+	breakInfo() {
+		const broken = this.session?.brokenConstraints() || 0
+		return broken === 0 ? '' : t('panel.sim_broken', broken)
 	},
 	driveAnimated() {
 		if (!animatedBodies.length || !this.session || !store) return

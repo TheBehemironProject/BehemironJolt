@@ -20,6 +20,7 @@ export interface SimLike {
 	readBodyVelocity(uuid: string): number[] | null
 	diagInfo(): string
 	sensorInfo?(): string
+	breakInfo?(): string
 }
 
 export interface PanelCtx {
@@ -367,7 +368,7 @@ export function createPanel(ctx: PanelCtx): PanelApi {
 				'bj-status-mode is-' + status.mode
 			)
 			append(
-				`${status.time.toFixed(1)}s · #${status.steps}${ctx.sim.diagInfo?.() || ''}${ctx.sim.sensorInfo?.() || ''}`
+				`${status.time.toFixed(1)}s · #${status.steps}${ctx.sim.diagInfo?.() || ''}${ctx.sim.sensorInfo?.() || ''}${ctx.sim.breakInfo?.() || ''}`
 			)
 			const selection = ctx.getSelection()
 			if (selection.groups.length === 1) {

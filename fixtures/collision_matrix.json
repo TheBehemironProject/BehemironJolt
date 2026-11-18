@@ -1,0 +1,85 @@
+{
+  "note": "collidePairProps: same non-zero group never collides (wins over selfCollide); else selfCollide OR.",
+  "bodies": [
+    {
+      "name": "A_default",
+      "collisionGroup": 0,
+      "selfCollide": false
+    },
+    {
+      "name": "B_default",
+      "collisionGroup": 0,
+      "selfCollide": false
+    },
+    {
+      "name": "C_self",
+      "collisionGroup": 0,
+      "selfCollide": true
+    },
+    {
+      "name": "D_group1",
+      "collisionGroup": 1,
+      "selfCollide": false
+    },
+    {
+      "name": "E_group1_self",
+      "collisionGroup": 1,
+      "selfCollide": true
+    },
+    {
+      "name": "F_group2",
+      "collisionGroup": 2,
+      "selfCollide": false
+    }
+  ],
+  "matrix": [
+    [
+      false,
+      false,
+      true,
+      false,
+      true,
+      false
+    ],
+    [
+      false,
+      false,
+      true,
+      false,
+      true,
+      false
+    ],
+    [
+      true,
+      true,
+      false,
+      true,
+      true,
+      true
+    ],
+    [
+      false,
+      false,
+      true,
+      false,
+      false,
+      false
+    ],
+    [
+      true,
+      true,
+      true,
+      false,
+      false,
+      true
+    ],
+    [
+      false,
+      false,
+      true,
+      false,
+      true,
+      false
+    ]
+  ]
+}
