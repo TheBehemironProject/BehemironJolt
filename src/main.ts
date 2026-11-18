@@ -18,6 +18,7 @@ import { initI18n, t } from './ui/i18n.ts'
 import { openBakeDialog } from './ui/bake_dialog.ts'
 import { openControllerDialog } from './ui/controller_dialog.ts'
 import { openBodyDialog } from './ui/body_dialog.ts'
+import { openStatesDialog } from './ui/states_dialog.ts'
 import { mat4Decompose, mat4FromElements } from './util/math.ts'
 
 type AnyBB = any
@@ -123,6 +124,19 @@ function onEditBody(uuid: string): void {
 		uuid,
 		name: adapter.bodyDisplayName(uuid),
 		notifyChanged: () => adapter.dispatch('behemiron_jolt_refresh')
+	})
+}
+
+function onEditStates(): void {
+	if (!store) return
+	openStatesDialog({
+		store,
+		bodyDisplayName: (uuid: string) => adapter.bodyDisplayName(uuid),
+		notifyChanged: () => adapter.dispatch('behemiron_jolt_refresh'),
+		showMessage: (message: string) => {
+			const Blockbench = (globalThis as any).Blockbench
+			Blockbench?.showQuickMessage?.(message, 3000)
+		}
 	})
 }
 
@@ -538,7 +552,8 @@ PluginRegister.register('behemiron_jolt', {
 			bodyDisplayName: adapter.bodyDisplayName,
 			onEditConstraint: openEditorById,
 			onEditController,
-			onEditBody
+			onEditBody,
+			onEditStates
 		})
 		viz = createViz({
 			projectPoint: adapter.projectPoint,

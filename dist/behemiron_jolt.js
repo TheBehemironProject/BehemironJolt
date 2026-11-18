@@ -40,7 +40,9 @@
     inertiaMultiplier: 1,
     animationDriven: false,
     controller: "none",
-    controllerParams: {}
+    controllerParams: {},
+    collisionGroup: 0,
+    selfCollide: false
   });
   var DEFAULT_SETTINGS = Object.freeze({
     unitsPerMeter: 16,
@@ -55,7 +57,8 @@
     angularDamping: [0, 100],
     gravityFactor: [-100, 100],
     mass: [1e-6, 1e12],
-    inertiaMultiplier: [1e-6, 1e6]
+    inertiaMultiplier: [1e-6, 1e6],
+    collisionGroup: [0, 65535]
   };
   function coerceBoolean(value, fallback) {
     return typeof value === "boolean" ? value : fallback;
@@ -97,12 +100,33 @@
     }
     out.motionType = coerceEnum(r.motionType, MOTION_TYPES, DEFAULT_BODY_PROPS.motionType);
     out.motionQuality = coerceEnum(r.motionQuality, MOTION_QUALITIES, DEFAULT_BODY_PROPS.motionQuality);
+    out.selfCollide = coerceBoolean(r.selfCollide, DEFAULT_BODY_PROPS.selfCollide);
     out.overrideMassProperties = coerceEnum(
       r.overrideMassProperties,
       OVERRIDE_MODES,
       DEFAULT_BODY_PROPS.overrideMassProperties
     );
     return out;
+  }
+  function sanitizePhysicsState(raw) {
+    const r = raw && typeof raw === "object" ? raw : null;
+    if (!r || typeof r.name !== "string" || !r.name.trim()) return null;
+    const bodies = {};
+    if (r.bodies && typeof r.bodies === "object" && !Array.isArray(r.bodies)) {
+      for (const [uuid, patchRaw] of Object.entries(r.bodies)) {
+        if (!uuid || patchRaw === null || typeof patchRaw !== "object" || Array.isArray(patchRaw))
+          continue;
+        const sanitized = sanitizeBodyProps(patchRaw);
+        const override = {};
+        for (const key of Object.keys(patchRaw)) {
+          if (key in sanitized)
+            override[key] = sanitized[key];
+        }
+        bodies[uuid] = override;
+      }
+    }
+    const breakConstraints = Array.isArray(r.breakConstraints) ? r.breakConstraints.filter((v) => typeof v === "string") : [];
+    return { name: r.name.trim(), bodies, breakConstraints };
   }
   function sanitizeSettings(raw) {
     const r = raw && typeof raw === "object" ? raw : {};
@@ -124,7 +148,8 @@
         elements: {},
         bodies: {},
         constraints: [],
-        settings: { ...DEFAULT_SETTINGS }
+        settings: { ...DEFAULT_SETTINGS },
+        states: {}
       };
     }
     const store2 = {
@@ -164,6 +189,28 @@
       setSettings(patch) {
         data.settings = sanitizeSettings({ ...data.settings, ...patch });
       },
+      listStates() {
+        return Object.values(data.states ?? {}).map((s) => ({
+          name: s.name,
+          bodies: JSON.parse(JSON.stringify(s.bodies)),
+          breakConstraints: s.breakConstraints.slice()
+        }));
+      },
+      getState(name) {
+        const s = data.states?.[name];
+        return s ? {
+          name: s.name,
+          bodies: JSON.parse(JSON.stringify(s.bodies)),
+          breakConstraints: s.breakConstraints.slice()
+        } : null;
+      },
+      upsertState(state2) {
+        const clean = sanitizePhysicsState(state2);
+        if (clean && data.states) data.states[clean.name] = clean;
+      },
+      removeState(name) {
+        if (data.states) delete data.states[name];
+      },
       counts() {
         return {
           elements: Object.keys(data.elements).length,
@@ -194,6 +241,15 @@
           ).map((c) => ({ ...c }));
         }
         if (r.settings) data.settings = sanitizeSettings(r.settings);
+        if (r.states && typeof r.states === "object" && !Array.isArray(r.states)) {
+          for (const [name, raw2] of Object.entries(r.states)) {
+            const clean = sanitizePhysicsState({
+              ...raw2,
+              name: raw2?.name ?? name
+            });
+            if (clean && data.states) data.states[clean.name] = clean;
+          }
+        }
       },
       reset() {
         data = freshData();
@@ -1205,6 +1261,7 @@
     if (type === "Distance") {
       constraint.maxDistance = Math.hypot(comB[0] - comA[0], comB[1] - comA[1], comB[2] - comA[2]);
     }
+    constraint.breakImpulse = null;
     return constraint;
   }
   function sanitizeVec3(value, fallback) {
@@ -1222,6 +1279,11 @@
       bodyB: r.bodyB,
       space: CONSTRAINT_SPACE
     };
+    {
+      const raw2 = r.breakImpulse;
+      const n = Number(raw2);
+      out.breakImpulse = raw2 !== null && raw2 !== void 0 && raw2 !== "" && Number.isFinite(n) && n > 0 ? n : null;
+    }
     for (const field of meta.fields) {
       const value = r[field.key];
       switch (field.kind) {
@@ -3273,6 +3335,17 @@
     "panel.angular_damping": "Angular Damping",
     "panel.gravity_factor": "Gravity Factor",
     "panel.motion_quality": "Motion Quality",
+    "panel.collision_group": "Collision Group (0 = none)",
+    "panel.self_collide": "Collide with this model instance",
+    "panel.break_impulse": "Break impulse (N\xB7s)",
+    "panel.states": "Physics States",
+    "dialog.states": "Physics States",
+    "dialog.state_name": "State name",
+    "dialog.state_bodies": "Bodies set to Dynamic in this state",
+    "dialog.state_break": "Constraints broken in this state",
+    "dialog.state_none": "No states yet. A state groups per-body motion overrides plus constraints to break (e.g. ragdoll).",
+    "msg.state_saved": "State saved",
+    "msg.state_removed": "State removed",
     "panel.isSensor": "Sensor (no collision response)",
     "panel.controller": "Controller",
     "panel.note_character": "Move with WASD, jump with Space while simulating.",
@@ -3531,6 +3604,17 @@
     "panel.linear_damping": "\u7EBF\u6027\u963B\u5C3C",
     "panel.angular_damping": "\u89D2\u963B\u5C3C",
     "panel.gravity_factor": "\u91CD\u529B\u7CFB\u6570",
+    "panel.collision_group": "\u78B0\u649E\u7EC4\uFF080 = \u4E0D\u5206\u7EC4\uFF09",
+    "panel.self_collide": "\u4E0E\u672C\u6A21\u578B\u5B9E\u4F8B\u78B0\u649E",
+    "panel.break_impulse": "\u65AD\u88C2\u51B2\u91CF\uFF08N\xB7s\uFF09",
+    "panel.states": "\u7269\u7406\u72B6\u6001",
+    "dialog.states": "\u7269\u7406\u72B6\u6001",
+    "dialog.state_name": "\u72B6\u6001\u540D",
+    "dialog.state_bodies": "\u6B64\u72B6\u6001\u4E0B\u8F6C\u4E3A Dynamic \u7684\u4F53",
+    "dialog.state_break": "\u6B64\u72B6\u6001\u4E0B\u65AD\u88C2\u7684\u7EA6\u675F",
+    "dialog.state_none": "\u8FD8\u6CA1\u6709\u72B6\u6001\u3002\u72B6\u6001 = \u6BCF\u4F53\u8FD0\u52A8\u8986\u5199\u7F16\u7EC4 + \u8FDB\u5165\u65F6\u65AD\u88C2\u7684\u7EA6\u675F\uFF08\u5982\u5E03\u5A03\u5A03\uFF09\u3002",
+    "msg.state_saved": "\u72B6\u6001\u5DF2\u4FDD\u5B58",
+    "msg.state_removed": "\u72B6\u6001\u5DF2\u5220\u9664",
     "panel.motion_quality": "\u8FD0\u52A8\u8D28\u91CF",
     "panel.isSensor": "\u4F20\u611F\u5668\uFF08\u65E0\u78B0\u649E\u54CD\u5E94\uFF09",
     "panel.controller": "\u63A7\u5236\u5668",
@@ -3872,7 +3956,9 @@
         value: props[key],
         step,
         onChange() {
-          ctx.store.setBodyProps(uuid, { [key]: Number(result()[keyPrefix + key]) });
+          ctx.store.setBodyProps(uuid, {
+            [key]: Number(result()[keyPrefix + key])
+          });
         }
       };
     }
@@ -3937,7 +4023,7 @@
           type: "buttons",
           label: "",
           full_width: true,
-          buttons: [t("panel.edit_controller"), t("panel.body_props")],
+          buttons: [t("panel.edit_controller"), t("panel.body_props"), t("panel.states")],
           click(i) {
             const controller = ctx.store.getBodyProps(uuid).controller;
             if (i === 0) {
@@ -3950,8 +4036,10 @@
                 const Blockbench2 = globalThis.Blockbench;
                 Blockbench2?.showQuickMessage?.(t("msg.select_controller_first"), 3e3);
               }
-            } else {
+            } else if (i === 1) {
               ctx.onEditBody?.(uuid);
+            } else {
+              ctx.onEditStates?.();
             }
           }
         }
@@ -4276,6 +4364,11 @@
         };
       }
     }
+    form.breakImpulse = {
+      type: "text",
+      label: t("panel.break_impulse") + t("field.no_limit"),
+      value: constraint.breakImpulse === null || constraint.breakImpulse === void 0 ? "" : String(constraint.breakImpulse)
+    };
     if (existing) {
       form._delete = { type: "checkbox", label: t("dialog.delete"), value: false };
     }
@@ -4297,6 +4390,10 @@
           bodyB: constraint.bodyB,
           space: constraint.space
         };
+        {
+          const raw = result.breakImpulse;
+          updated.breakImpulse = raw === "" || raw === null || raw === void 0 || Number.isNaN(Number(raw)) ? null : Number(raw);
+        }
         for (const field of meta.fields) {
           let value = result[field.key];
           if (field.kind === "point3" || field.kind === "pos3" || field.kind === "vec3") {
@@ -5177,6 +5274,7 @@
       form[key] = { type: "number", label, value: props[key], min, max, step };
     };
     num2("objectLayer", t("panel.object_layer"), 0, 65535, 1);
+    num2("collisionGroup", t("panel.collision_group"), 0, 65535, 1);
     num2("linearDamping", t("panel.linear_damping"), 0, 10, 0.01);
     num2("angularDamping", t("panel.angular_damping"), 0, 10, 0.01);
     num2("gravityFactor", t("panel.gravity_factor"), -10, 10, 0.1);
@@ -5187,6 +5285,7 @@
       options: Object.fromEntries(MOTION_QUALITIES.map((k) => [k, qualityLabel(k)]))
     };
     form.isSensor = { type: "checkbox", label: t("panel.isSensor"), value: props.isSensor };
+    form.selfCollide = { type: "checkbox", label: t("panel.self_collide"), value: props.selfCollide };
     form.allowSleeping = { type: "checkbox", label: t("panel.allowSleeping"), value: props.allowSleeping };
     form.overrideMassProperties = {
       type: "select",
@@ -5198,7 +5297,14 @@
         MassAndInertiaProvided: t("override.MassAndInertiaProvided")
       }
     };
-    form.mass = { type: "number", label: t("panel.mass"), value: props.mass, min: 1e-6, max: 1e9, step: 0.1 };
+    form.mass = {
+      type: "number",
+      label: t("panel.mass"),
+      value: props.mass,
+      min: 1e-6,
+      max: 1e9,
+      step: 0.1
+    };
     const dialog = new Dialog("behemiron_jolt_body_props", {
       title: t("dialog.body_props"),
       form,
@@ -5206,6 +5312,8 @@
       onConfirm(result) {
         const patch = sanitizeBodyProps({
           objectLayer: Math.round(Number(result.objectLayer) || 0),
+          collisionGroup: Math.round(Number(result.collisionGroup) || 0),
+          selfCollide: result.selfCollide === true || result.selfCollide === "true",
           linearDamping: Number(result.linearDamping),
           angularDamping: Number(result.angularDamping),
           gravityFactor: Number(result.gravityFactor),
@@ -5222,8 +5330,114 @@
     dialog.show();
   }
 
-  // src/main.ts
+  // src/ui/states_dialog.ts
   function bbGlobal6(name) {
+    return globalThis[name] || globalThis.Blockbench?.[name];
+  }
+  function openStatesDialog(ctx) {
+    const Dialog = bbGlobal6("Dialog");
+    injectDialogStyles();
+    const states = ctx.store.listStates();
+    const form = {
+      header: { type: "info", text: states.length ? "" : t("dialog.state_none"), full_width: true }
+    };
+    states.forEach((state2, i) => {
+      form[`state_${i}`] = {
+        type: "buttons",
+        label: "",
+        full_width: true,
+        buttons: [
+          `${state2.name} (${Object.keys(state2.bodies).length} bodies, ${state2.breakConstraints.length} breaks)`
+        ],
+        click() {
+          openStateEditor(ctx, state2.name);
+        }
+      };
+    });
+    form._new = {
+      type: "buttons",
+      label: "",
+      full_width: true,
+      buttons: ["+"],
+      click() {
+        openStateEditor(ctx, null);
+      }
+    };
+    new Dialog("behemiron_jolt_states", {
+      title: t("dialog.states"),
+      form,
+      width: 480
+    }).show();
+  }
+  function openStateEditor(ctx, existingName) {
+    const Dialog = bbGlobal6("Dialog");
+    injectDialogStyles();
+    const existing = existingName ? ctx.store.getState(existingName) : null;
+    const data = ctx.store.serialize();
+    const bodyUuids = Object.keys(data.bodies);
+    const constraints = data.constraints;
+    const form = {
+      header: {
+        type: "info",
+        text: existingName ? existingName : t("dialog.state_name"),
+        full_width: true
+      }
+    };
+    if (!existingName) {
+      form.name = { type: "text", label: t("dialog.state_name"), value: "", full_width: true };
+    }
+    if (bodyUuids.length) {
+      form.__bodies_head = { type: "info", text: t("dialog.state_bodies"), full_width: true };
+      for (const uuid of bodyUuids) {
+        form[`body_${uuid}`] = {
+          type: "checkbox",
+          label: `${ctx.bodyDisplayName(uuid)} \u2192 Dynamic`,
+          value: !!existing?.bodies[uuid]
+        };
+      }
+    }
+    if (constraints.length) {
+      form.__break_head = { type: "info", text: t("dialog.state_break"), full_width: true };
+      for (const c of constraints) {
+        form[`break_${c.id}`] = {
+          type: "checkbox",
+          label: describeConstraint(c, ctx.bodyDisplayName),
+          value: existing?.breakConstraints.includes(c.id) ?? false
+        };
+      }
+    }
+    if (existingName) {
+      form._delete = { type: "checkbox", label: t("dialog.delete"), value: false };
+    }
+    new Dialog("behemiron_jolt_state_edit", {
+      title: t("dialog.states"),
+      form,
+      width: 520,
+      onConfirm(result) {
+        if (result._delete) {
+          ctx.store.removeState(existingName);
+          ctx.showMessage(t("msg.state_removed"));
+          ctx.notifyChanged();
+          return;
+        }
+        const name = existingName || String(result.name || "").trim();
+        if (!name) return;
+        const bodies = {};
+        for (const uuid of bodyUuids) {
+          if (result[`body_${uuid}`] === true || result[`body_${uuid}`] === "true") {
+            bodies[uuid] = { motionType: "Dynamic" };
+          }
+        }
+        const breakConstraints = constraints.filter((c) => result[`break_${c.id}`] === true || result[`break_${c.id}`] === "true").map((c) => c.id);
+        ctx.store.upsertState({ name, bodies, breakConstraints });
+        ctx.showMessage(t("msg.state_saved"));
+        ctx.notifyChanged();
+      }
+    }).show();
+  }
+
+  // src/main.ts
+  function bbGlobal7(name) {
     return globalThis[name] || globalThis.Blockbench?.[name];
   }
   var store = null;
@@ -5310,6 +5524,18 @@
       notifyChanged: () => dispatch("behemiron_jolt_refresh")
     });
   }
+  function onEditStates() {
+    if (!store) return;
+    openStatesDialog({
+      store,
+      bodyDisplayName: (uuid) => bodyDisplayName(uuid),
+      notifyChanged: () => dispatch("behemiron_jolt_refresh"),
+      showMessage: (message) => {
+        const Blockbench2 = globalThis.Blockbench;
+        Blockbench2?.showQuickMessage?.(message, 3e3);
+      }
+    });
+  }
   function refreshViz() {
     viz?.refresh(store?.listConstraints() || []);
   }
@@ -5349,9 +5575,9 @@
     },
     driveAnimated() {
       if (!animatedBodies.length || !this.session || !store) return;
-      const Timeline = bbGlobal6("Timeline");
-      const Animator = bbGlobal6("Animator");
-      const Canvas = bbGlobal6("Canvas");
+      const Timeline = bbGlobal7("Timeline");
+      const Animator = bbGlobal7("Animator");
+      const Canvas = bbGlobal7("Canvas");
       const animations = globalThis.Project?.animations || [];
       const animLength = animations.length ? Math.max(...animations.map((a) => a.length || 1), 1e-3) : 0;
       if (!animLength || !Timeline || !Animator?.preview) return;
@@ -5515,7 +5741,7 @@
       this.mode = "running";
       this.lastTime = performance.now();
       attachDriveInput(session);
-      const Group = bbGlobal6("Group");
+      const Group = bbGlobal7("Group");
       animatedBodies = bodies.filter((b) => b.props.motionType === "Kinematic" && b.props.animationDriven).map((b) => ({ uuid: b.uuid, group: (Group.all || []).find((g) => g.uuid === b.uuid) })).filter((x) => !!x.group);
       panelApi?.rebuild();
       dispatch("behemiron_jolt_refresh");
@@ -5563,7 +5789,7 @@
     }
   };
   function registerActions() {
-    const Action = bbGlobal6("Action");
+    const Action = bbGlobal7("Action");
     const MenuBar = globalThis.MenuBar;
     const simulateAction = new Action("behemiron_jolt_simulate", {
       name: t("action.simulate.name"),
@@ -5669,7 +5895,8 @@
         bodyDisplayName,
         onEditConstraint: openEditorById,
         onEditController,
-        onEditBody
+        onEditBody,
+        onEditStates
       });
       viz = createViz({
         projectPoint,

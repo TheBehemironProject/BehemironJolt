@@ -30,6 +30,7 @@ export interface PanelCtx {
 	onEditConstraint?(id: string): void
 	onEditController?(uuid: string, kind: 'character' | 'vehicle' | 'softbody' | 'hair'): void
 	onEditBody?(uuid: string): void
+	onEditStates?(): void
 }
 
 interface PanelApi {
@@ -96,7 +97,12 @@ export function createPanel(ctx: PanelCtx): PanelApi {
 		for (const uuid of uuids) ctx.store.setElementProps(uuid, { [key]: value } as Partial<ElementProps>)
 	}
 
-	function bodyNum(uuid: string, keyPrefix: string, key: keyof BodyProps & string, step: number): FormConfig[string] {
+	function bodyNum(
+		uuid: string,
+		keyPrefix: string,
+		key: keyof BodyProps & string,
+		step: number
+	): FormConfig[string] {
 		const props: BodyProps = ctx.store.getBodyProps(uuid)
 		return {
 			// no min/max in the sidebar: bounded numbers render BB's < > stepper arrows, which
@@ -106,7 +112,9 @@ export function createPanel(ctx: PanelCtx): PanelApi {
 			value: props[key] as number,
 			step,
 			onChange() {
-				ctx.store.setBodyProps(uuid, { [key]: Number(result()[keyPrefix + key]) } as Partial<BodyProps>)
+				ctx.store.setBodyProps(uuid, {
+					[key]: Number(result()[keyPrefix + key])
+				} as Partial<BodyProps>)
 			}
 		}
 	}
@@ -176,7 +184,7 @@ export function createPanel(ctx: PanelCtx): PanelApi {
 				type: 'buttons',
 				label: '',
 				full_width: true,
-				buttons: [t('panel.edit_controller'), t('panel.body_props')],
+				buttons: [t('panel.edit_controller'), t('panel.body_props'), t('panel.states')],
 				click(i: number) {
 					// read fresh: `props` is a build-time snapshot and the select above does not rebuild fields
 					const controller = ctx.store.getBodyProps(uuid).controller
@@ -190,8 +198,10 @@ export function createPanel(ctx: PanelCtx): PanelApi {
 							const Blockbench: AnyBB = (globalThis as any).Blockbench
 							Blockbench?.showQuickMessage?.(t('msg.select_controller_first'), 3000)
 						}
-					} else {
+					} else if (i === 1) {
 						ctx.onEditBody?.(uuid)
+					} else {
+						ctx.onEditStates?.()
 					}
 				}
 			}

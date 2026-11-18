@@ -21,9 +21,7 @@ function bbGlobal(name: string): AnyBB {
 
 // Godot-inspector convention: camelCase property identifiers read as spaced words ("maxSlopeAngle" → "Max Slope Angle")
 function humanize(key: string): string {
-	return key
-		.replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-		.replace(/^./, c => c.toUpperCase())
+	return key.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/^./, c => c.toUpperCase())
 }
 
 export interface ControllerDialogCtx {

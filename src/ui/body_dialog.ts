@@ -13,7 +13,10 @@ function bbGlobal(name: string): AnyBB {
 }
 
 export interface BodyDialogCtx {
-	store: { getBodyProps(uuid: string): BodyProps; setBodyProps(uuid: string, patch: Partial<BodyProps>): void }
+	store: {
+		getBodyProps(uuid: string): BodyProps
+		setBodyProps(uuid: string, patch: Partial<BodyProps>): void
+	}
 	uuid: string
 	name?: string
 	notifyChanged?(): void
@@ -30,6 +33,7 @@ export function openBodyDialog(ctx: BodyDialogCtx): void {
 		form[key] = { type: 'number', label, value: props[key] as number, min, max, step }
 	}
 	num('objectLayer', t('panel.object_layer'), 0, 0xffff, 1)
+	num('collisionGroup', t('panel.collision_group'), 0, 0xffff, 1)
 	num('linearDamping', t('panel.linear_damping'), 0, 10, 0.01)
 	num('angularDamping', t('panel.angular_damping'), 0, 10, 0.01)
 	num('gravityFactor', t('panel.gravity_factor'), -10, 10, 0.1)
@@ -40,6 +44,7 @@ export function openBodyDialog(ctx: BodyDialogCtx): void {
 		options: Object.fromEntries(MOTION_QUALITIES.map(k => [k, qualityLabel(k)]))
 	}
 	form.isSensor = { type: 'checkbox', label: t('panel.isSensor'), value: props.isSensor }
+	form.selfCollide = { type: 'checkbox', label: t('panel.self_collide'), value: props.selfCollide }
 	form.allowSleeping = { type: 'checkbox', label: t('panel.allowSleeping'), value: props.allowSleeping }
 	form.overrideMassProperties = {
 		type: 'select',
@@ -51,7 +56,14 @@ export function openBodyDialog(ctx: BodyDialogCtx): void {
 			MassAndInertiaProvided: t('override.MassAndInertiaProvided')
 		}
 	}
-	form.mass = { type: 'number', label: t('panel.mass'), value: props.mass, min: 0.000001, max: 1e9, step: 0.1 }
+	form.mass = {
+		type: 'number',
+		label: t('panel.mass'),
+		value: props.mass,
+		min: 0.000001,
+		max: 1e9,
+		step: 0.1
+	}
 
 	const dialog = new Dialog('behemiron_jolt_body_props', {
 		title: t('dialog.body_props'),
@@ -60,6 +72,8 @@ export function openBodyDialog(ctx: BodyDialogCtx): void {
 		onConfirm(result: Record<string, any>) {
 			const patch = sanitizeBodyProps({
 				objectLayer: Math.round(Number(result.objectLayer) || 0),
+				collisionGroup: Math.round(Number(result.collisionGroup) || 0),
+				selfCollide: result.selfCollide === true || result.selfCollide === 'true',
 				linearDamping: Number(result.linearDamping),
 				angularDamping: Number(result.angularDamping),
 				gravityFactor: Number(result.gravityFactor),

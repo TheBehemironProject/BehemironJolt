@@ -189,6 +189,15 @@ export function openConstraintEditor(ctx: EditorCtx, constraint: ConstraintData)
 			}
 		}
 	}
+	// Common optional field (all types): break threshold, floatOrNull semantics like limits
+	form.breakImpulse = {
+		type: 'text',
+		label: t('panel.break_impulse') + t('field.no_limit'),
+		value:
+			constraint.breakImpulse === null || constraint.breakImpulse === undefined
+				? ''
+				: String(constraint.breakImpulse)
+	}
 	if (existing) {
 		form._delete = { type: 'checkbox', label: t('dialog.delete'), value: false }
 	}
@@ -210,6 +219,13 @@ export function openConstraintEditor(ctx: EditorCtx, constraint: ConstraintData)
 				bodyA: constraint.bodyA,
 				bodyB: constraint.bodyB,
 				space: constraint.space
+			}
+			{
+				const raw = result.breakImpulse
+				updated.breakImpulse =
+					raw === '' || raw === null || raw === undefined || Number.isNaN(Number(raw))
+						? null
+						: Number(raw)
 			}
 			for (const field of meta.fields) {
 				let value: unknown = result[field.key]
