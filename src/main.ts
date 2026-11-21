@@ -1,7 +1,8 @@
 // Behemiron Jolt Physics — Blockbench plugin entry point.
 // Assembles store, persistence, panel, actions, gizmo viz and the simulation state machine.
 
-import { createStore, type PhysicsStore, type ConstraintData, type Settings } from './core/store.ts'
+import { createStore, type PhysicsStore, type ConstraintData, type Settings, GIZMO_ORIGIN } from './core/store.ts'
+import { createEditHistory, type EditHistory } from './core/edit_history.ts'
 import { buildPhysicsFromSnapshot } from './core/pipeline.ts'
 import { sanitizeConstraint, constraintToExport, moveConstraintHandle } from './core/constraints.ts'
 import { mat4Compose, mat4Invert, mat4Multiply, type Vec3, type Quat } from './util/math.ts'
@@ -28,11 +29,12 @@ function bbGlobal(name: string): AnyBB {
 }
 
 let store: PhysicsStore | null = null
+let history: EditHistory | null = null
 let persistDetach: (() => void) | null = null
 let panelApi: { rebuild(): void; refreshStatus(): void; dispose(): void } | null = null
 let viz: {
 	refresh(constraints?: ConstraintData[]): void
-	updateDebug(vectors?: DebugVector[]): void
+	updateDebug(): void
 	dispose(): void
 } | null = null
 let actions: AnyBB[] = []
@@ -91,6 +93,7 @@ function updateDriveInput(session: SimSession): void {
 function editorCtx(): EditorCtx {
 	return {
 		store: store as unknown as EditorCtx['store'],
+		history: history as unknown as EditorCtx['history'],
 		getSelection: adapter.getSelection,
 		estimateGroupCom: adapter.estimateGroupCom,
 		bodyDisplayName: adapter.bodyDisplayName,
@@ -111,6 +114,7 @@ function onEditController(uuid: string, kind: 'character' | 'vehicle' | 'softbod
 	if (!store) return
 	openControllerDialog({
 		store,
+		history,
 		uuid,
 		kind,
 		notifyChanged: () => adapter.dispatch('behemiron_jolt_refresh')
@@ -121,6 +125,7 @@ function onEditBody(uuid: string): void {
 	if (!store) return
 	openBodyDialog({
 		store,
+		history,
 		uuid,
 		name: adapter.bodyDisplayName(uuid),
 		notifyChanged: () => adapter.dispatch('behemiron_jolt_refresh')
@@ -131,6 +136,7 @@ function onEditStates(): void {
 	if (!store) return
 	openStatesDialog({
 		store,
+		history,
 		bodyDisplayName: (uuid: string) => adapter.bodyDisplayName(uuid),
 		notifyChanged: () => adapter.dispatch('behemiron_jolt_refresh'),
 		showMessage: (message: string) => {
@@ -146,19 +152,23 @@ function refreshViz(): void {
 
 function onMoveHandle(constraintId: string, field: string, worldBB: number[], index: number | null): void {
 	if (!store || sim.isActive()) return
-	const constraint = store.getConstraint(constraintId)
+	const s = store
+	const constraint = s.getConstraint(constraintId)
 	if (!constraint) return
 	const updated = moveConstraintHandle(constraint, field, worldBB, index)
 	if (!updated) return
 	const clean = sanitizeConstraint(updated)
-	if (clean) {
-		store.upsertConstraint(clean)
-		refreshViz()
-	}
+	if (!clean) return
+	// mergeKey folds the whole drag into ONE undo step (MERGE_WINDOW covers inter-move gaps)
+	history?.push(t('panel.constraints'), `gizmo:${constraintId}:${field}:${index ?? 'all'}`, () =>
+		s.upsertConstraint(clean, GIZMO_ORIGIN)
+	)
+	refreshViz()
 }
 
 interface SimState {
 	mode: 'idle' | 'running' | 'paused'
+	starting: boolean
 	session: SimSession | null
 	ghost: GhostView | null
 	rafId: number | null
@@ -169,6 +179,7 @@ interface SimState {
 	diagInfo(): string
 	sensorInfo(): string
 	breakInfo(): string
+	loadingInfo(): string
 	driveAnimated(): void
 	toggle(): Promise<void>
 	pause(): void
@@ -181,6 +192,7 @@ interface SimState {
 
 const sim: SimState = {
 	mode: 'idle',
+	starting: false,
 	session: null,
 	ghost: null,
 	rafId: null,
@@ -205,6 +217,9 @@ const sim: SimState = {
 	breakInfo() {
 		const broken = this.session?.brokenConstraints() || 0
 		return broken === 0 ? '' : t('panel.sim_broken', broken)
+	},
+	loadingInfo() {
+		return joltLoadState().status === 'loading' ? t('msg.loading') : ''
 	},
 	driveAnimated() {
 		if (!animatedBodies.length || !this.session || !store) return
@@ -299,7 +314,7 @@ const sim: SimState = {
 				]
 			})
 		})
-		viz?.updateDebug(debugVectors)
+		viz?.updateDebug()
 		// sensor contact states at 4Hz (contact listener itself stays O(1) per callback)
 		if (++frameCounter % 15 === 0 && this.session) {
 			const states = this.session.getSensorStates()
@@ -325,91 +340,101 @@ const sim: SimState = {
 	},
 
 	async start() {
-		if (!store) return
-		const snapshot = adapter.takeSnapshot()
-		const pipeline = buildPhysicsFromSnapshot(snapshot, store)
-		const bodies = pipeline.bodyDescs.filter(b => b.shape)
-		if (!bodies.length) {
-			adapter.showMessage(t('msg.no_bodies'), 5000)
-			return
-		}
-		if (pipeline.skipped.length) {
-			adapter.showMessage(t('msg.skipped', pipeline.skipped.length), 4000)
-		}
-		const constraints = store
-			.listConstraints()
-			.map(c => sanitizeConstraint(c))
-			.filter((c): c is ConstraintData => !!c)
-			.map(c => constraintToExport(c, pipeline.scale))
-		const settings: Settings = pipeline.settings
-
-		adapter.showMessage(t('msg.loading'), 2000)
-		let Jolt: JoltNS
+		if (!store || this.mode !== 'idle' || this.starting) return
+		// WASM load is async and mode stays 'idle' until it finishes — without this flag a second
+		// Simulate click starts a second session: the first session leaks (never stopped) and both
+		// rAF loops keep stepping the shared sim state forever
+		this.starting = true
 		try {
-			Jolt = await loadJolt()
-		} catch (err: any) {
-			console.error(err)
-			adapter.showMessage(t('msg.load_failed', String(err?.message || err)), 8000)
-			return
-		}
+			const snapshot = adapter.takeSnapshot()
+			const pipeline = buildPhysicsFromSnapshot(snapshot, store)
+			const bodies = pipeline.bodyDescs.filter(b => b.shape)
+			if (!bodies.length) {
+				adapter.showMessage(t('msg.no_bodies'), 5000)
+				return
+			}
+			if (pipeline.skipped.length) {
+				adapter.showMessage(t('msg.skipped', pipeline.skipped.length), 4000)
+			}
+			const constraints = store
+				.listConstraints()
+				.map(c => sanitizeConstraint(c))
+				.filter((c): c is ConstraintData => !!c)
+				.map(c => constraintToExport(c, pipeline.scale))
+			const settings: Settings = pipeline.settings
 
-		const session = new SimSession({
-			Jolt,
-			bodies,
-			constraints,
-			gravity: settings.gravity,
-			ground: { enabled: settings.groundEnabled, y: pipeline.groundY - 0.02 },
-			unitsPerMeter: settings.unitsPerMeter
-		})
-		try {
-			session.start()
-		} catch (err: any) {
-			console.error('behemiron_jolt: simulation failed to start', err)
-			adapter.showMessage(t('msg.sim_failed', err?.message || err), 6000)
-			session.stop()
-			return
-		}
+			adapter.showMessage(t('msg.loading'), 2000)
+			panelApi?.refreshStatus()
+			let Jolt: JoltNS
+			try {
+				Jolt = await loadJolt()
+			} catch (err: any) {
+				console.error(err)
+				adapter.showMessage(t('msg.load_failed', String(err?.message || err)), 8000)
+				panelApi?.refreshStatus()
+				return
+			}
 
-		// Ghost view: clone element meshes, drive with physics transforms
-		const ghost = new GhostView(adapter.scene())
-		const bodyVis: GhostBody[] = bodies.map((body, bodyIndex) => ({
-			bodyIndex,
-			bodyMatrix: body.frame,
-			items: body.elementUuids
-				.map(uuid => {
-					const mesh = adapter.getElementMesh(uuid)
-					if (!mesh) return null
-					return { mesh, offset: mat4Multiply(mat4Invert(body.frame), adapter.matrixOfMesh(mesh)) }
-				})
-				.filter((item): item is { mesh: AnyBB; offset: number[] } => !!item)
-		}))
-		ghost.build(bodyVis)
+			const session = new SimSession({
+				Jolt,
+				bodies,
+				constraints,
+				gravity: settings.gravity,
+				ground: { enabled: settings.groundEnabled, y: pipeline.groundY - 0.02 },
+				unitsPerMeter: settings.unitsPerMeter
+			})
+			try {
+				session.start()
+			} catch (err: any) {
+				console.error('behemiron_jolt: simulation failed to start', err)
+				adapter.showMessage(t('msg.sim_failed', err?.message || err), 6000)
+				session.stop()
+				return
+			}
 
-		this.session = session
-		this.ghost = ghost
-		this.mode = 'running'
-		this.lastTime = performance.now()
-		attachDriveInput(session)
-		// collect kinematic bodies driven by the Blockbench animation
-		const Group = bbGlobal('Group')
-		animatedBodies = bodies
-			.filter(b => b.props.motionType === 'Kinematic' && b.props.animationDriven)
-			.map(b => ({ uuid: b.uuid, group: (Group.all || []).find((g: AnyBB) => g.uuid === b.uuid) }))
-			.filter((x: { uuid: string; group: AnyBB }) => !!x.group)
-		panelApi?.rebuild()
-		adapter.dispatch('behemiron_jolt_refresh')
+			// Ghost view: clone element meshes, drive with physics transforms
+			const ghost = new GhostView(adapter.scene())
+			const bodyVis: GhostBody[] = bodies.map((body, bodyIndex) => ({
+				bodyIndex,
+				bodyMatrix: body.frame,
+				items: body.elementUuids
+					.map(uuid => {
+						const mesh = adapter.getElementMesh(uuid)
+						if (!mesh) return null
+						return { mesh, offset: mat4Multiply(mat4Invert(body.frame), adapter.matrixOfMesh(mesh)) }
+					})
+					.filter((item): item is { mesh: AnyBB; offset: number[] } => !!item)
+			}))
+			ghost.build(bodyVis)
 
-		const loop = (now: number) => {
-			if (this.mode !== 'running') return
-			const dt = Math.min((now - this.lastTime) / 1000, 0.25)
-			this.lastTime = now
+			this.session = session
+			this.ghost = ghost
+			this.mode = 'running'
+			this.lastTime = performance.now()
+			attachDriveInput(session)
+			// collect kinematic bodies driven by the Blockbench animation
+			const Group = bbGlobal('Group')
+			animatedBodies = bodies
+				.filter(b => b.props.motionType === 'Kinematic' && b.props.animationDriven)
+				.map(b => ({ uuid: b.uuid, group: (Group.all || []).find((g: AnyBB) => g.uuid === b.uuid) }))
+				.filter((x: { uuid: string; group: AnyBB }) => !!x.group)
+			panelApi?.rebuild()
+			adapter.dispatch('behemiron_jolt_refresh')
+
+			const loop = (now: number) => {
+				if (this.mode !== 'running') return
+				const dt = Math.min((now - this.lastTime) / 1000, 0.25)
+				this.lastTime = now
+				this.driveAnimated()
+				this.session?.step(dt)
+				this.sync()
+				this.rafId = requestAnimationFrame(loop)
+			}
 			this.driveAnimated()
-			this.session?.step(dt)
-			this.sync()
 			this.rafId = requestAnimationFrame(loop)
+		} finally {
+			this.starting = false
 		}
-		this.driveAnimated()
-		this.rafId = requestAnimationFrame(loop)
 	},
 
 	reset() {
@@ -438,7 +463,7 @@ const sim: SimState = {
 		sensorDots.length = 0
 		sensorSummary = ''
 		frameCounter = 0
-		viz?.updateDebug([])
+		viz?.updateDebug()
 		panelApi?.rebuild()
 		adapter.dispatch('behemiron_jolt_refresh')
 	}
@@ -446,12 +471,15 @@ const sim: SimState = {
 
 function registerActions(): void {
 	const Action = bbGlobal('Action')
+	const Keybind = bbGlobal('Keybind')
 	const MenuBar = (globalThis as any).MenuBar
 
+	// F5–F8 are unbound in Blockbench defaults (only F11 is taken, main_tools.ts:273)
 	const simulateAction = new Action('behemiron_jolt_simulate', {
 		name: t('action.simulate.name'),
 		description: t('action.simulate.description'),
 		icon: 'play_arrow',
+		keybind: new Keybind({ key: 116 }),
 		click() {
 			sim.toggle()
 		}
@@ -460,6 +488,7 @@ function registerActions(): void {
 		name: t('action.step.name'),
 		description: t('action.step.description'),
 		icon: 'skip_next',
+		keybind: new Keybind({ key: 117 }),
 		click() {
 			sim.stepOnce()
 		}
@@ -468,6 +497,7 @@ function registerActions(): void {
 		name: t('action.reset.name'),
 		description: t('action.reset.description'),
 		icon: 'replay',
+		keybind: new Keybind({ key: 118 }),
 		click() {
 			sim.reset()
 		}
@@ -484,6 +514,7 @@ function registerActions(): void {
 		name: t('action.bake.name'),
 		description: t('action.bake.description'),
 		icon: 'movie',
+		keybind: new Keybind({ key: 119 }),
 		click() {
 			if (!store || sim.isActive()) {
 				adapter.showMessage(t('bake.sim_active'), 4000)
@@ -531,7 +562,15 @@ function registerActions(): void {
 	}
 }
 
-const pluginRef: { offProjectChange?: () => void; offLoad?: () => void; offVizRefresh?: () => void } = {}
+const pluginRef: {
+	offProjectChange?: () => void
+	offLoad?: () => void
+	offUndo?: () => void
+	offRedo?: () => void
+	offEdit?: () => void
+	offVizRefresh?: () => void
+	offStoreViz?: () => void
+} = {}
 
 // blockbench-types declares Plugin as a class; the register static is added by the loader at runtime
 const PluginRegister = Plugin as unknown as { register(id: string, meta: Record<string, any>): void }
@@ -550,9 +589,16 @@ PluginRegister.register('behemiron_jolt', {
 		initI18n()
 		store = createStore()
 		persistDetach = attachPersist(store)
+		history = createEditHistory(store, {
+			initEdit: aspects => bbGlobal('Undo').initEdit(aspects),
+			finishEdit: (message, aspects) => bbGlobal('Undo').finishEdit(message, aspects),
+			addListener: (name, cb) => adapter.onEvent(name, cb),
+			removeListener: (name, cb) => Blockbench.removeListener(name, cb)
+		})
 		panelApi = createPanel({
 			store,
 			sim,
+			history,
 			getSelection: adapter.getSelection,
 			bodyDisplayName: adapter.bodyDisplayName,
 			onEditConstraint: openEditorById,
@@ -573,15 +619,34 @@ PluginRegister.register('behemiron_jolt', {
 		})
 		registerActions()
 
+		// history changes mutate names/geometry/selection outside our store — rebuild the panel and
+		// re-project gizmos or BB undo/redo leaves stale values on screen (undo.js dispatches both)
+		const onHistoryChange = () => {
+			panelApi?.rebuild()
+			refreshViz()
+		}
 		pluginRef.offProjectChange = adapter.onEvent('new_project', () => {
 			if (sim.isActive()) sim.reset()
+			// persist resets the store on this event; without a rebuild the panel keeps showing the
+			// previous project's body form and the viz keeps the previous project's gizmos
+			panelApi?.rebuild()
+			refreshViz()
 		})
 		pluginRef.offLoad = adapter.onEvent('load_project', () => {
 			if (sim.isActive()) sim.reset()
 			panelApi?.rebuild()
 			refreshViz()
 		})
+		pluginRef.offUndo = adapter.onEvent('undo', onHistoryChange)
+		pluginRef.offRedo = adapter.onEvent('redo', onHistoryChange)
+		// gizmos that track body centers (gear/rack crosses, hinge ref arcs) follow viewport drags:
+		// BB fires 'finished_edit' at drag end, not a selection change
+		pluginRef.offEdit = adapter.onEvent('finished_edit', refreshViz)
 		pluginRef.offVizRefresh = adapter.onEvent('behemiron_jolt_refresh', refreshViz)
+		// store-driven echo: constraint changes from anywhere (dialogs, gizmo, history) re-project
+		pluginRef.offStoreViz = store.subscribe(change => {
+			if (change.kind === 'constraints' || change.kind === 'load') refreshViz()
+		})
 		refreshViz()
 		console.log('Behemiron Jolt Physics loaded (Jolt WASM: ' + joltLoadState().status + ')')
 	},
@@ -590,7 +655,13 @@ PluginRegister.register('behemiron_jolt', {
 		sim.reset()
 		pluginRef.offProjectChange?.()
 		pluginRef.offLoad?.()
+		pluginRef.offUndo?.()
+		pluginRef.offRedo?.()
+		pluginRef.offEdit?.()
 		pluginRef.offVizRefresh?.()
+		pluginRef.offStoreViz?.()
+		history?.dispose()
+		history = null
 		viz?.dispose()
 		viz = null
 		panelApi?.dispose()

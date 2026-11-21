@@ -1,5 +1,5 @@
 // Constraint creation wizard + editor dialog.
-// Anchors auto-fill with the two bodies' centers; angles are degrees in the UI (radians in store/export).
+// Anchors auto-fill with the two bodies' centers; angles are degrees in the UI (radians in store).
 
 import {
 	CONSTRAINT_TYPES,
@@ -10,7 +10,8 @@ import {
 	type ConstraintTypeMeta
 } from '../core/constraints.ts'
 import type { ConstraintData } from '../core/store.ts'
-import { t, typeLabel, fieldLabel } from './i18n.ts'
+import type { EditChannel } from '../core/edit_history.ts'
+import { t, typeLabel, fieldLabel, tip } from './i18n.ts'
 import type { SelectionResult } from '../bb/adapter.ts'
 import type { Vec3 } from '../util/math.ts'
 
@@ -20,9 +21,10 @@ export interface EditorCtx {
 	store: {
 		listConstraints(): ConstraintData[]
 		getConstraint(id: string): ConstraintData | null
-		upsertConstraint(c: ConstraintData): string
-		removeConstraint(id: string): void
+		upsertConstraint(c: ConstraintData, origin?: unknown): string
+		removeConstraint(id: string, origin?: unknown): void
 	}
+	history?: EditChannel | null
 	getSelection(): SelectionResult
 	estimateGroupCom(group: AnyBB): Vec3
 	bodyDisplayName(uuid: string): string
@@ -49,6 +51,19 @@ export function injectDialogStyles(): void {
 			border-left: 3px solid var(--color-accent);
 			font-weight: 600; letter-spacing: 0.05em; opacity: 0.9;
 		}
+		dialog[id^='behemiron_jolt_'] .bj-section-head { cursor: pointer; user-select: none; position: relative; }
+		dialog[id^='behemiron_jolt_'] .bj-section-head .small_text::before { content: '▾ '; opacity: 0.55; }
+		dialog[id^='behemiron_jolt_'] .bj-section-head.collapsed .small_text::before { content: '▸ '; }
+		dialog[id^='behemiron_jolt_'] .bj-section-reset {
+			position: absolute; right: 4px; top: 2px;
+			border: none; background: none; padding: 0 2px; font-size: 11px; opacity: 0.45; cursor: pointer; line-height: 1;
+		}
+		dialog[id^='behemiron_jolt_'] .bj-section-reset:hover { opacity: 1; color: var(--color-accent); }
+		dialog[id^='behemiron_jolt_'] .bj-revert {
+			border: none; background: none; padding: 0 2px; font-size: 10px; opacity: 0.45; cursor: pointer; line-height: 1;
+		}
+		dialog[id^='behemiron_jolt_'] .bj-revert:hover { opacity: 1; color: var(--color-accent); }
+		dialog[id^='behemiron_jolt_'] .form_bar label { display: inline-flex; align-items: center; gap: 2px; }
 	`
 	const style = document.createElement('style')
 	style.id = 'behemiron_jolt_dialog_styles'
@@ -73,6 +88,80 @@ function parsePathPoints(text: unknown): Vec3[] {
 
 function formatVec6(values: (number | null)[]): string {
 	return values.map(v => (v === null || v === undefined ? '' : v)).join(',')
+}
+
+// Post-build DOM enhancement shared by the constraint and controller dialogs:
+// section headers become collapsible and get a per-section Reset; non-default fields get a
+// revert arrow in their label. `sectionOf` maps form keys → section name (null = not in any).
+export function enhanceDialogDom(
+	dialog: AnyBB,
+	orderedKeys: string[],
+	sectionOf: Map<string, string | null>,
+	revertSpecs: { key: string; isDefault: boolean; revert: () => void }[]
+): void {
+	const formNode: HTMLElement | null | undefined = dialog.form?.node
+	if (!formNode) return
+	const children = Array.from(formNode.children)
+	const barOf = (key: string): HTMLElement | undefined =>
+		children.find(el => (el as HTMLElement).classList?.contains('form_bar_' + key)) as
+			| HTMLElement
+			| undefined
+	// collapse + reset, one block per section in first-appearance order
+	const sections: { name: string; head: HTMLElement; rows: HTMLElement[] }[] = []
+	for (const key of orderedKeys) {
+		const section = sectionOf.get(key)
+		if (!section) continue
+		const bar = barOf(key)
+		let block = sections.find(s => s.name === section)
+		if (!block) {
+			const head = barOf('__head_' + section)
+			if (!head) continue
+			head.classList.add('bj-section-head')
+			const newBlock: { name: string; head: HTMLElement; rows: HTMLElement[] } = {
+				name: section,
+				head,
+				rows: []
+			}
+			block = newBlock
+			sections.push(newBlock)
+			let collapsed = false
+			head.addEventListener('click', event => {
+				if ((event.target as HTMLElement).closest('.bj-section-reset')) return
+				collapsed = !collapsed
+				head.classList.toggle('collapsed', collapsed)
+				for (const row of newBlock.rows) row.style.display = collapsed ? 'none' : ''
+			})
+			const reset = document.createElement('button')
+			reset.type = 'button'
+			reset.className = 'bj-section-reset'
+			reset.title = t('panel.section_reset')
+			reset.textContent = '↺'
+			reset.addEventListener('click', event => {
+				event.stopPropagation()
+				for (const spec of revertSpecs) {
+					if (sectionOf.get(spec.key) === section && !spec.isDefault) spec.revert()
+				}
+			})
+			head.append(reset)
+		}
+		if (bar && bar !== block.head) block.rows.push(bar)
+	}
+	for (const spec of revertSpecs) {
+		if (spec.isDefault) continue
+		const bar = barOf(spec.key)
+		const label = bar?.querySelector('label')
+		if (!label) continue
+		const btn = document.createElement('button')
+		btn.type = 'button'
+		btn.className = 'bj-revert'
+		btn.title = t('panel.revert_default')
+		btn.textContent = '↺'
+		btn.addEventListener('click', event => {
+			event.preventDefault()
+			spec.revert()
+		})
+		label.append(btn)
+	}
 }
 
 // ctx: editor dependencies
@@ -117,6 +206,8 @@ export function openConstraintEditor(ctx: EditorCtx, constraint: ConstraintData)
 	const form: Record<string, any> = {
 		header: { type: 'info', text: describeConstraint(constraint, ctx.bodyDisplayName), full_width: true }
 	}
+	const orderedKeys: string[] = ['header']
+	const sectionOf = new Map<string, string | null>()
 	let currentSection: string | null | undefined = undefined
 	const addSectionHeader = (section: string | null | undefined): void => {
 		if (section === currentSection) return
@@ -124,12 +215,18 @@ export function openConstraintEditor(ctx: EditorCtx, constraint: ConstraintData)
 		if (section) {
 			form['__sep_' + section] = '_'
 			form['__head_' + section] = { type: 'info', text: t('section.' + section), full_width: true }
+			orderedKeys.push('__sep_' + section, '__head_' + section)
+			sectionOf.set('__sep_' + section, section)
+			sectionOf.set('__head_' + section, section)
 		}
 	}
 	for (const field of meta.fields) {
 		addSectionHeader(field.section ?? (field.kind === 'point3' ? 'anchors' : null))
 		const value: unknown = constraint[field.key]
 		const label = fieldLabel(field.labelKey || field.key, field.label)
+		const tipText = tip(field.key)
+		sectionOf.set(field.key, currentSection ?? null)
+		orderedKeys.push(field.key)
 		if (field.kind === 'point3' || field.kind === 'pos3' || field.kind === 'vec3') {
 			const isPoint = field.kind !== 'vec3'
 			form[field.key] = {
@@ -149,6 +246,7 @@ export function openConstraintEditor(ctx: EditorCtx, constraint: ConstraintData)
 			form[field.key] = {
 				type: 'textarea',
 				label: t('dialog.path_label', label),
+				description: tipText,
 				value: (Array.isArray(value) ? (value as Vec3[]) : []).map(p => p.join(',')).join('\n'),
 				height: 80
 			}
@@ -167,12 +265,14 @@ export function openConstraintEditor(ctx: EditorCtx, constraint: ConstraintData)
 			form[field.key] = {
 				type: 'text',
 				label: label + t('field.no_limit'),
+				description: tipText,
 				value: value === null || value === undefined ? '' : String(value)
 			}
 		} else if (field.kind === 'float') {
 			form[field.key] = {
 				type: 'number',
 				label,
+				description: tipText,
 				value,
 				min: field.min,
 				max: field.max,
@@ -184,6 +284,7 @@ export function openConstraintEditor(ctx: EditorCtx, constraint: ConstraintData)
 			form[field.key] = {
 				type: 'select',
 				label,
+				description: tipText,
 				options: Object.fromEntries((field.options || []).map(o => [o, t('enum.' + o)])),
 				value
 			}
@@ -193,22 +294,46 @@ export function openConstraintEditor(ctx: EditorCtx, constraint: ConstraintData)
 	form.breakImpulse = {
 		type: 'text',
 		label: t('panel.break_impulse') + t('field.no_limit'),
+		description: tip('breakImpulse'),
 		value:
 			constraint.breakImpulse === null || constraint.breakImpulse === undefined
 				? ''
 				: String(constraint.breakImpulse)
 	}
+	orderedKeys.push('breakImpulse')
+	sectionOf.set('breakImpulse', currentSection ?? null)
 	if (existing) {
 		form._delete = { type: 'checkbox', label: t('dialog.delete'), value: false }
+		orderedKeys.push('_delete')
+	}
+
+	const revertSpecs = meta.fields
+		.filter(f => f.kind !== 'vec6' && f.kind !== 'pathPoints')
+		.map(f => ({
+			key: f.key,
+			isDefault:
+				JSON.stringify(constraint[f.key] ?? null) === JSON.stringify(f.def ?? null),
+			revert: () => {
+				const v = f.def
+				dialog.setFormValues({ [f.key]: Array.isArray(v) ? (v as number[]).slice() : v })
+			}
+		}))
+
+	const commit = (write: () => void) => {
+		if (ctx.history) ctx.history.push(t('dialog.constraint', typeLabel(constraint.type)), null, write)
+		else write()
 	}
 
 	const dialog = new Dialog('behemiron_jolt_constraint_edit', {
 		title: t('dialog.constraint', typeLabel(constraint.type)),
 		form,
 		width: 520,
+		onOpen() {
+			enhanceDialogDom(dialog, orderedKeys, sectionOf, revertSpecs)
+		},
 		onConfirm(result: Record<string, any>) {
 			if (result._delete) {
-				ctx.store.removeConstraint(constraint.id)
+				commit(() => ctx.store.removeConstraint(constraint.id))
 				ctx.showMessage(t('msg.constraint_deleted'))
 				ctx.notifyChanged()
 				return
@@ -257,7 +382,7 @@ export function openConstraintEditor(ctx: EditorCtx, constraint: ConstraintData)
 				ctx.showMessage(t('msg.invalid_constraint'))
 				return
 			}
-			ctx.store.upsertConstraint(clean)
+			commit(() => ctx.store.upsertConstraint(clean))
 			ctx.showMessage(existing ? t('msg.constraint_updated') : t('msg.constraint_created'))
 			ctx.notifyChanged()
 		}

@@ -1,13 +1,21 @@
 // Sidebar panel (right bar): selection-aware physics property editing + status footer.
+// Data flow: every edit goes through the store (origin-tagged) and the shared edit history;
+// the panel subscribes to the store and echoes external changes in place (focus-guarded),
+// falling back to a full rebuild when structure changes (constraints/states/undo/load).
 
 import {
 	SHAPE_TYPES,
 	MOTION_TYPES,
+	DEFAULT_ELEMENT_PROPS,
+	DEFAULT_BODY_PROPS,
+	DEFAULT_SETTINGS,
 	type PhysicsStore,
 	type ElementProps,
 	type BodyProps,
-	type ConstraintData
+	type ConstraintData,
+	type StoreChange
 } from '../core/store.ts'
+import type { EditChannel } from '../core/edit_history.ts'
 import { describeConstraint } from '../core/constraints.ts'
 import { onEvent, type SelectionResult } from '../bb/adapter.ts'
 import { t, shapeLabel, motionLabel } from './i18n.ts'
@@ -21,11 +29,17 @@ export interface SimLike {
 	diagInfo(): string
 	sensorInfo?(): string
 	breakInfo?(): string
+	/** non-empty while the Jolt WASM is still loading (first simulate click) */
+	loadingInfo?(): string
+	toggle(): void | Promise<void>
+	stepOnce(): void
+	reset(): void
 }
 
 export interface PanelCtx {
 	store: PhysicsStore
 	sim: SimLike
+	history: EditChannel
 	getSelection(): SelectionResult
 	bodyDisplayName(uuid: string): string
 	onEditConstraint?(id: string): void
@@ -57,11 +71,15 @@ function enumOptions(keys: readonly string[], label: (k: string) => string): Rec
 
 type FormConfig = Record<string, any>
 
-// ctx: {store, sim, getSelection, bodyDisplayName}
+// identifies panel-originated store writes so the echo skips its own widgets (anti-flicker)
+const PANEL_ORIGIN = Symbol('behemiron_jolt_panel')
+
+// ctx: {store, sim, history, getSelection, bodyDisplayName}
 export function createPanel(ctx: PanelCtx): PanelApi {
 	const Panel = bbGlobal('Panel')
 	const InputForm = bbGlobal('InputForm')
 	const Interface = bbGlobal('Interface')
+	const Blockbench = bbGlobal('Blockbench')
 
 	const panel = new Panel('behemiron_jolt', {
 		icon: 'fas.fa-atom',
@@ -83,8 +101,31 @@ export function createPanel(ctx: PanelCtx): PanelApi {
 		#panel_behemiron_jolt [class*='form_bar_'][class*='header'] .small_text { color: var(--color-accent); font-weight: 600; }
 		#panel_behemiron_jolt .behemiron_jolt_status { padding: 4px 8px; font-size: 11px; opacity: 0.8; border-top: 1px solid var(--color-border); min-height: 20px; }
 		#panel_behemiron_jolt .behemiron_jolt_status .bj-status-mode.is-running { color: var(--color-accent); font-weight: 600; }
+		#panel_behemiron_jolt .behemiron_jolt_runbar { display: flex; gap: 2px; padding: 4px 6px; border-bottom: 1px solid var(--color-border); }
+		#panel_behemiron_jolt .behemiron_jolt_runbar button { flex: 1 1 0; min-width: 0; padding: 2px 0; line-height: 1; background: transparent; border: 1px solid var(--color-border); border-radius: 3px; color: var(--color-text); cursor: pointer; }
+		#panel_behemiron_jolt .behemiron_jolt_runbar button:hover { border-color: var(--color-accent); color: var(--color-accent); }
+		#panel_behemiron_jolt .behemiron_jolt_runbar button:disabled { opacity: 0.4; cursor: default; }
+		#panel_behemiron_jolt .bj-revert { border: none; background: none; padding: 0 2px; font-size: 10px; opacity: 0.45; cursor: pointer; line-height: 1; }
+		#panel_behemiron_jolt .bj-revert:hover { opacity: 1; color: var(--color-accent); }
+		#panel_behemiron_jolt .form_bar { line-height: 1.4; }
+		#panel_behemiron_jolt .form_bar label { display: inline-flex; align-items: center; gap: 2px; line-height: 1.3; }
 	`
 	document.head.appendChild(guard)
+
+	// run bar: simulate toggle / step / reset — stays clickable while the form below is read-only
+	const runBar: HTMLElement = Interface.createElement('div', { class: 'behemiron_jolt_runbar' })
+	panel.node.prepend(runBar)
+	const runButtons: { el: HTMLButtonElement; icon: string; title: string; click: () => void; dyn?: boolean }[] = []
+	const makeRunButton = (icon: string, titleKey: string, click: () => void, dyn = false) => {
+		const el = document.createElement('button')
+		el.type = 'button'
+		el.addEventListener('click', click)
+		runBar.append(el)
+		runButtons.push({ el, icon, title: titleKey, click, dyn })
+	}
+	makeRunButton('play_arrow', 'action.simulate.description', () => void ctx.sim.toggle(), true)
+	makeRunButton('skip_next', 'action.step.description', () => ctx.sim.stepOnce())
+	makeRunButton('replay', 'action.reset.description', () => ctx.sim.reset())
 
 	const statusEl: HTMLElement = Interface.createElement('div', { class: 'behemiron_jolt_status' })
 	panel.node.append(statusEl)
@@ -95,7 +136,10 @@ export function createPanel(ctx: PanelCtx): PanelApi {
 	}
 
 	function applyToElements(uuids: string[], key: string, value: unknown): void {
-		for (const uuid of uuids) ctx.store.setElementProps(uuid, { [key]: value } as Partial<ElementProps>)
+		ctx.history.push(t('panel.' + key), null, () => {
+			for (const uuid of uuids)
+				ctx.store.setElementProps(uuid, { [key]: value } as Partial<ElementProps>, PANEL_ORIGIN)
+		})
 	}
 
 	function bodyNum(
@@ -113,9 +157,13 @@ export function createPanel(ctx: PanelCtx): PanelApi {
 			value: props[key] as number,
 			step,
 			onChange() {
-				ctx.store.setBodyProps(uuid, {
-					[key]: Number(result()[keyPrefix + key])
-				} as Partial<BodyProps>)
+				ctx.history.push(t('panel.' + key), 'panel:' + uuid + ':' + key, () => {
+					ctx.store.setBodyProps(
+						uuid,
+						{ [key]: Number(result()[keyPrefix + key]) } as Partial<BodyProps>,
+						PANEL_ORIGIN
+					)
+				})
 			}
 		}
 	}
@@ -138,7 +186,13 @@ export function createPanel(ctx: PanelCtx): PanelApi {
 				label: t('panel.density'),
 				value: first.density,
 				onChange() {
-					applyToElements(uuids, 'density', Number(result().density) || first.density)
+					// fallback reads the store, not the build-time snapshot: clearing the field must
+					// restore the current value (the snapshot may be stale after other edits)
+					applyToElements(
+						uuids,
+						'density',
+						Number(result().density) || ctx.store.getElementProps(uuids[0]).density
+					)
 				}
 			},
 			note: { type: 'info', text: t('panel.auto_note') }
@@ -148,7 +202,9 @@ export function createPanel(ctx: PanelCtx): PanelApi {
 	function bodyConfig(uuid: string, name: string, keyPrefix = '', withNote = true): FormConfig {
 		const props: BodyProps = ctx.store.getBodyProps(uuid)
 		const set = (key: string, value: unknown) =>
-			ctx.store.setBodyProps(uuid, { [key]: value } as Partial<BodyProps>)
+			ctx.history.push(t('panel.' + key), 'panel:' + uuid + ':' + key, () => {
+				ctx.store.setBodyProps(uuid, { [key]: value } as Partial<BodyProps>, PANEL_ORIGIN)
+			})
 		const rd = (key: string) => result()[keyPrefix + key]
 		// Essentials only — everything else lives in the body-properties dialog (overflow-free by design)
 		const config: FormConfig = {
@@ -196,7 +252,6 @@ export function createPanel(ctx: PanelCtx): PanelApi {
 								controller as 'character' | 'vehicle' | 'softbody' | 'hair'
 							)
 						} else {
-							const Blockbench: AnyBB = (globalThis as any).Blockbench
 							Blockbench?.showQuickMessage?.(t('msg.select_controller_first'), 3000)
 						}
 					} else if (i === 1) {
@@ -245,8 +300,11 @@ export function createPanel(ctx: PanelCtx): PanelApi {
 				value: settings.unitsPerMeter,
 				step: 1,
 				onChange() {
-					ctx.store.setSettings({
-						unitsPerMeter: Number(result().unitsPerMeter) || settings.unitsPerMeter
+					ctx.history.push(t('panel.units_per_meter'), 'panel:settings:upm', () => {
+						ctx.store.setSettings(
+							{ unitsPerMeter: Number(result().unitsPerMeter) || ctx.store.getSettings().unitsPerMeter },
+							PANEL_ORIGIN
+						)
 					})
 				}
 			},
@@ -256,7 +314,9 @@ export function createPanel(ctx: PanelCtx): PanelApi {
 				dimensions: 3,
 				value: settings.gravity,
 				onChange() {
-					ctx.store.setSettings({ gravity: (result().gravity as string[]).map(Number) })
+					ctx.history.push(t('panel.gravity'), 'panel:settings:gravity', () => {
+						ctx.store.setSettings({ gravity: (result().gravity as string[]).map(Number) }, PANEL_ORIGIN)
+					})
 				}
 			},
 			groundEnabled: {
@@ -264,7 +324,9 @@ export function createPanel(ctx: PanelCtx): PanelApi {
 				label: t('panel.ground'),
 				value: settings.groundEnabled,
 				onChange() {
-					ctx.store.setSettings({ groundEnabled: !!result().groundEnabled })
+					ctx.history.push(t('panel.ground'), 'panel:settings:ground', () => {
+						ctx.store.setSettings({ groundEnabled: !!result().groundEnabled }, PANEL_ORIGIN)
+					})
 				}
 			}
 		}
@@ -280,14 +342,11 @@ export function createPanel(ctx: PanelCtx): PanelApi {
 					ctx.onEditConstraint?.(all[i].id)
 				}
 			}
+		} else if (ctx.store.counts().bodies === 0) {
+			// empty project: tell the user where physics data comes from instead of a blank panel
+			config.guidance = { type: 'info', text: t('panel.empty_guidance'), full_width: true }
 		}
 		return config
-	}
-
-	function simActiveConfig(): FormConfig {
-		return {
-			header: { type: 'info', text: t('panel.sim_active'), full_width: true }
-		}
 	}
 
 	function flattenConfig(config: FormConfig, prefix: string): FormConfig {
@@ -296,20 +355,133 @@ export function createPanel(ctx: PanelCtx): PanelApi {
 		return out
 	}
 
+	// which form fields are currently being edited (hold focus) — never clobber those on echo
+	function focusedKeys(): Set<string> {
+		const active = document.activeElement as HTMLElement | null
+		if (!active || !panel.form.node.contains(active)) return new Set()
+		const bar = active.closest('.dialog_bar')
+		if (!bar) return new Set()
+		const cls = Array.from(bar.classList).find(c => c.startsWith('form_bar_'))
+		return new Set(cls ? [cls.slice('form_bar_'.length)] : [])
+	}
+
+	// live echo: push fresh store values into the visible fields without a rebuild. Skips fields
+	// that hold focus (typing must not be interrupted) and no-ops when the widget already matches.
+	function echoValues(change: StoreChange): void {
+		const form: AnyBB = panel.form
+		const selection = ctx.getSelection()
+		const focused = focusedKeys()
+		const values: Record<string, unknown> = {}
+		const pushValue = (key: string, value: unknown) => {
+			if (focused.has(key)) return
+			const current = form.getResult()[key]
+			if (JSON.stringify(current) !== JSON.stringify(value)) values[key] = value
+		}
+		if (selection.elements.length && !selection.groups.length) {
+			const first = ctx.store.getElementProps(selection.elements[0].uuid)
+			if (change.kind === 'elements' || change.kind === 'bodies') {
+				pushValue('shape', first.shape)
+				pushValue('density', first.density)
+			}
+		} else if (selection.groups.length && !selection.elements.length) {
+			const groups = selection.groups.length === 2 ? selection.groups : [selection.groups[0]]
+			const prefixes = selection.groups.length === 2 ? ['g1.', 'g2.'] : ['']
+			for (let i = 0; i < groups.length; i++) {
+				const props = ctx.store.getBodyProps(groups[i].uuid)
+				const prefix = prefixes[i]
+				if (change.kind === 'bodies') {
+					pushValue(prefix + 'motionType', props.motionType)
+					pushValue(prefix + 'friction', props.friction)
+					pushValue(prefix + 'restitution', props.restitution)
+					const controllerNow = form.getResult()[prefix + 'controller']
+					if (controllerNow !== props.controller) {
+						// controller swap changes available notes/buttons — structural, rebuild
+						rebuild()
+						return
+					}
+				}
+			}
+		} else if (!selection.groups.length && !selection.elements.length) {
+			if (change.kind === 'settings') {
+				const settings = ctx.store.getSettings()
+				pushValue('unitsPerMeter', settings.unitsPerMeter)
+				pushValue('gravity', settings.gravity)
+				pushValue('groundEnabled', settings.groundEnabled)
+			}
+		}
+		if (Object.keys(values).length) form.setValues(values)
+		syncRevertArrows()
+	}
+
+	// read-only while simulating: keep the form visible (context stays) but freeze every control
+	function applyReadOnly(): void {
+		const form: AnyBB = panel.form
+		for (const el of form.node.querySelectorAll('input, select, textarea, button, .bb-select')) {
+			el.disabled = true
+		}
+	}
+
+	// per-field revert arrows (only on non-default values). Live-synced: in-place echoes flip
+	// defaultness without a rebuild, so the arrow state is re-evaluated on every store echo.
+	interface RevertSpec {
+		key: string
+		def: unknown
+		current(): unknown
+		revert(): void
+	}
+	let liveRevertSpecs: RevertSpec[] = []
+
+	function revertButton(spec: RevertSpec): HTMLButtonElement {
+		const btn = document.createElement('button')
+		btn.type = 'button'
+		btn.className = 'bj-revert'
+		btn.title = t('panel.revert_default')
+		btn.textContent = '↺'
+		btn.addEventListener('click', event => {
+			event.preventDefault()
+			spec.revert()
+		})
+		return btn
+	}
+
+	function applyRevertArrows(specs: RevertSpec[]): void {
+		liveRevertSpecs = specs
+		syncRevertArrows()
+	}
+
+	function syncRevertArrows(): void {
+		const form: AnyBB = panel.form
+		const labels = new Map<string, HTMLElement>()
+		for (const bar of form.node.querySelectorAll('.dialog_bar')) {
+			const el = bar as HTMLElement
+			const cls = Array.from(el.classList as DOMTokenList).find(c => c.startsWith('form_bar_'))
+			if (!cls) continue
+			const label = el.querySelector('label') as HTMLElement | null
+			if (label) labels.set(cls.slice('form_bar_'.length), label)
+		}
+		for (const spec of liveRevertSpecs) {
+			const label = labels.get(spec.key)
+			if (!label) continue
+			const isDefault = JSON.stringify(spec.current()) === JSON.stringify(spec.def)
+			const existing = label.querySelector('.bj-revert')
+			if (isDefault) existing?.remove()
+			else if (!existing) label.append(revertButton(spec))
+		}
+	}
+
 	function rebuild(): void {
 		const form: AnyBB = panel.form
 		for (const key in form.form_config) delete form.form_config[key]
 		let config: FormConfig
+		let revertSpecs: RevertSpec[] = []
 		if (ctx.sim.isActive()) {
-			config = simActiveConfig()
-		} else {
+			// full form, frozen — the user sees what is paused and can still read values
 			const selection = ctx.getSelection()
 			if (selection.elements.length && !selection.groups.length) {
 				config = elementConfig(selection.elements.map((e: AnyBB) => e.uuid))
 			} else if (selection.groups.length === 1 && !selection.elements.length) {
 				config = bodyConfig(selection.groups[0].uuid, selection.groups[0].name)
 			} else if (selection.groups.length === 2) {
-				// Blockbench InputForm has no nested forms — flatten both body configs with prefixes
 				config = {
 					header: { type: 'info', text: t('panel.two_bodies'), full_width: true },
 					hint: { type: 'info', text: t('panel.constraint_hint') },
@@ -325,6 +497,85 @@ export function createPanel(ctx: PanelCtx): PanelApi {
 				}
 			} else {
 				config = settingsConfig()
+			}
+			config = { simNotice: { type: 'info', text: t('panel.sim_active'), full_width: true }, ...config }
+		} else {
+			const selection = ctx.getSelection()
+			if (selection.elements.length && !selection.groups.length) {
+				const uuids = selection.elements.map((e: AnyBB) => e.uuid)
+				config = elementConfig(uuids)
+				revertSpecs = [
+					{
+						key: 'shape',
+						def: DEFAULT_ELEMENT_PROPS.shape,
+						current: () => ctx.store.getElementProps(uuids[0]).shape,
+						revert: () => applyToElements(uuids, 'shape', DEFAULT_ELEMENT_PROPS.shape)
+					},
+					{
+						key: 'density',
+						def: DEFAULT_ELEMENT_PROPS.density,
+						current: () => ctx.store.getElementProps(uuids[0]).density,
+						revert: () => applyToElements(uuids, 'density', DEFAULT_ELEMENT_PROPS.density)
+					}
+				]
+			} else if (selection.groups.length === 1 && !selection.elements.length) {
+				config = bodyConfig(selection.groups[0].uuid, selection.groups[0].name)
+				revertSpecs = bodyRevertSpecs(selection.groups[0].uuid, '')
+			} else if (selection.groups.length === 2) {
+				config = {
+					header: { type: 'info', text: t('panel.two_bodies'), full_width: true },
+					hint: { type: 'info', text: t('panel.constraint_hint') },
+					...flattenConfig(
+						bodyConfig(selection.groups[0].uuid, selection.groups[0].name, 'g1.', false),
+						'g1.'
+					),
+					sep: '_',
+					...flattenConfig(
+						bodyConfig(selection.groups[1].uuid, selection.groups[1].name, 'g2.', false),
+						'g2.'
+					)
+				}
+				revertSpecs = [
+					...bodyRevertSpecs(selection.groups[0].uuid, 'g1.'),
+					...bodyRevertSpecs(selection.groups[1].uuid, 'g2.')
+				]
+			} else {
+				config = settingsConfig()
+				revertSpecs = [
+					{
+						key: 'unitsPerMeter',
+						def: DEFAULT_SETTINGS.unitsPerMeter,
+						current: () => ctx.store.getSettings().unitsPerMeter,
+						revert: () =>
+							ctx.history.push(t('panel.units_per_meter'), null, () =>
+								ctx.store.setSettings(
+									{ unitsPerMeter: DEFAULT_SETTINGS.unitsPerMeter },
+									PANEL_ORIGIN
+								)
+							)
+					},
+					{
+						key: 'gravity',
+						def: DEFAULT_SETTINGS.gravity,
+						current: () => ctx.store.getSettings().gravity,
+						revert: () =>
+							ctx.history.push(t('panel.gravity'), null, () =>
+								ctx.store.setSettings({ gravity: DEFAULT_SETTINGS.gravity.slice() }, PANEL_ORIGIN)
+							)
+					},
+					{
+						key: 'groundEnabled',
+						def: DEFAULT_SETTINGS.groundEnabled,
+						current: () => ctx.store.getSettings().groundEnabled,
+						revert: () =>
+							ctx.history.push(t('panel.ground'), null, () =>
+								ctx.store.setSettings(
+									{ groundEnabled: DEFAULT_SETTINGS.groundEnabled },
+									PANEL_ORIGIN
+								)
+							)
+					}
+				]
 			}
 		}
 		Object.assign(form.form_config, config)
@@ -344,7 +595,60 @@ export function createPanel(ctx: PanelCtx): PanelApi {
 				}
 			}, 90)
 		})
+		if (ctx.sim.isActive()) applyReadOnly()
+		applyRevertArrows(revertSpecs)
+		applyTips()
 		refreshStatus()
+	}
+
+	// hover tooltips as bar title attributes: zero layout impact (the native BB description icon
+	// would widen the label column and overflow the narrow sidebar)
+	const TIP_KEYS = new Set([
+		'motionType',
+		'friction',
+		'restitution',
+		'controller',
+		'shape',
+		'density',
+		'unitsPerMeter',
+		'gravity',
+		'groundEnabled'
+	])
+	function applyTips(): void {
+		const form: AnyBB = panel.form
+		for (const bar of form.node.querySelectorAll('.dialog_bar')) {
+			const el = bar as HTMLElement
+			const cls = Array.from(el.classList as DOMTokenList).find(c => c.startsWith('form_bar_'))
+			if (!cls) continue
+			const bare = cls.slice('form_bar_'.length).replace(/^(g1\.|g2\.)/, '')
+			if (TIP_KEYS.has(bare)) el.setAttribute('title', t('tip.' + bare))
+		}
+	}
+
+	function bodyRevertSpecs(uuid: string, prefix: string): RevertSpec[] {
+		const defaults = DEFAULT_BODY_PROPS as unknown as Record<string, unknown>
+		const mk = (key: string): RevertSpec => ({
+			key: prefix + key,
+			def: defaults[key],
+			current: () =>
+				(ctx.store.getBodyProps(uuid) as unknown as Record<string, unknown>)[key],
+			revert: () =>
+				ctx.history.push(t('panel.' + key), null, () =>
+					ctx.store.setBodyProps(uuid, { [key]: defaults[key] } as Partial<BodyProps>, PANEL_ORIGIN)
+				)
+		})
+		return [mk('motionType'), mk('friction'), mk('restitution'), mk('controller')]
+	}
+
+	function refreshRunBar(): void {
+		const mode = ctx.sim.status().mode
+		for (const btn of runButtons) {
+			const icon = btn.dyn ? (mode === 'running' ? 'pause' : 'play_arrow') : btn.icon
+			btn.el.textContent = ''
+			btn.el.append(Blockbench.getIconNode(icon))
+			btn.el.title = t(btn.title)
+			btn.el.disabled = mode === 'idle' && !btn.dyn && btn.icon === 'skip_next'
+		}
 	}
 
 	function refreshStatus(): void {
@@ -377,10 +681,31 @@ export function createPanel(ctx: PanelCtx): PanelApi {
 			}
 		}
 		append(t('panel.status', counts.bodies, counts.constraints))
+		const loading = ctx.sim.loadingInfo?.()
+		if (loading) append(loading)
+		refreshRunBar()
 	}
 
 	const offSelection = onEvent('update_selection', rebuild)
 	const offRefresh = onEvent('behemiron_jolt_refresh', () => refreshStatus())
+	const offStore = ctx.store.subscribe(change => {
+		if (change.origin === PANEL_ORIGIN) {
+			// own write: widgets already hold the value — only derived text/arrows can change
+			refreshStatus()
+			syncRevertArrows()
+			return
+		}
+		if (change.kind === 'constraints' || change.kind === 'states' || change.kind === 'load') {
+			// structure changed: button lists / notes / whole view — full rebuild
+			rebuild()
+			return
+		}
+		if (ctx.sim.isActive()) {
+			refreshStatus()
+			return
+		}
+		echoValues(change)
+	})
 
 	rebuild()
 
@@ -390,7 +715,10 @@ export function createPanel(ctx: PanelCtx): PanelApi {
 		dispose() {
 			offSelection()
 			offRefresh()
+			offStore()
+			if (bridgeTimer) clearTimeout(bridgeTimer)
 			statusEl.remove()
+			runBar.remove()
 			guard.remove()
 			try {
 				panel.delete?.()

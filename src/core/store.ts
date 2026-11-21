@@ -48,11 +48,11 @@ export interface BodyProps {
 	overrideMassProperties: OverrideMode
 	mass: number
 	inertiaMultiplier: number
-	/** B3: drive this kinematic body from the Blockbench animation while simulating */
+	/** drive this kinematic body from the Blockbench animation while simulating */
 	animationDriven: boolean
-	/** B4: special controller attached to this body */
+	/** special controller attached to this body */
 	controller: ControllerType
-	/** B4: controller parameters (character/vehicle); defaults merged at use time */
+	/** controller parameters (character/vehicle); defaults merged at use time */
 	controllerParams: Record<string, number | number[] | boolean>
 	/** collision group id: bodies in the same group never collide with each other (0 = no grouping) */
 	collisionGroup: number
@@ -105,26 +105,41 @@ export interface StoreCounts {
 	constraints: number
 }
 
+/** Identifies who wrote to the store; subscribers skip re-echoing their own writes (focus guard) */
+export type StoreOrigin = symbol | string | undefined
+
+/** Writes from viewport gizmo drags: subscribers refresh visuals without rebuilding forms */
+export const GIZMO_ORIGIN: StoreOrigin = 'gizmo'
+
+export interface StoreChange {
+	kind: 'elements' | 'bodies' | 'constraints' | 'settings' | 'states' | 'load'
+	origin: StoreOrigin
+	uuids?: string[]
+}
+
+export type StoreListener = (change: StoreChange) => void
+
 export interface PhysicsStore {
 	getElementProps(uuid: string): ElementProps
-	setElementProps(uuid: string, patch: Partial<ElementProps>): void
+	setElementProps(uuid: string, patch: Partial<ElementProps>, origin?: StoreOrigin): void
 	getBodyProps(uuid: string): BodyProps
-	setBodyProps(uuid: string, patch: Partial<BodyProps>): void
+	setBodyProps(uuid: string, patch: Partial<BodyProps>, origin?: StoreOrigin): void
 	listConstraints(): ConstraintData[]
 	getConstraint(id: string): ConstraintData | null
-	upsertConstraint(constraint: ConstraintData): string
-	removeConstraint(id: string): void
+	upsertConstraint(constraint: ConstraintData, origin?: StoreOrigin): string
+	removeConstraint(id: string, origin?: StoreOrigin): void
 	getSettings(): Settings
-	setSettings(patch: Partial<Settings>): void
+	setSettings(patch: Partial<Settings>, origin?: StoreOrigin): void
 	listStates(): PhysicsStateDef[]
 	getState(name: string): PhysicsStateDef | null
-	upsertState(state: PhysicsStateDef): void
-	removeState(name: string): void
+	upsertState(state: PhysicsStateDef, origin?: StoreOrigin): void
+	removeState(name: string, origin?: StoreOrigin): void
 	counts(): StoreCounts
 	serialize(): StoreData
-	load(raw: unknown): void
-	reset(): void
+	load(raw: unknown, origin?: StoreOrigin): void
+	reset(origin?: StoreOrigin): void
 	validate(bodyUuids: string[], elementUuids: string[]): string[]
+	subscribe(listener: StoreListener): () => void
 }
 
 export const DEFAULT_ELEMENT_PROPS: ElementProps = Object.freeze({ shape: 'auto', density: 1000 })
@@ -270,6 +285,11 @@ function makeId(): string {
 
 export function createStore(): PhysicsStore {
 	let data: StoreData = freshData()
+	const listeners = new Set<StoreListener>()
+
+	function emit(change: StoreChange): void {
+		for (const listener of [...listeners]) listener(change)
+	}
 
 	function freshData(): StoreData {
 		return {
@@ -286,14 +306,16 @@ export function createStore(): PhysicsStore {
 		getElementProps(uuid: string): ElementProps {
 			return data.elements[uuid] ? { ...data.elements[uuid] } : { ...DEFAULT_ELEMENT_PROPS }
 		},
-		setElementProps(uuid: string, patch: Partial<ElementProps>) {
+		setElementProps(uuid: string, patch: Partial<ElementProps>, origin?: StoreOrigin) {
 			data.elements[uuid] = sanitizeElementProps({ ...data.elements[uuid], ...patch })
+			emit({ kind: 'elements', origin, uuids: [uuid] })
 		},
 		getBodyProps(uuid: string): BodyProps {
 			return data.bodies[uuid] ? { ...data.bodies[uuid] } : { ...DEFAULT_BODY_PROPS }
 		},
-		setBodyProps(uuid: string, patch: Partial<BodyProps>) {
+		setBodyProps(uuid: string, patch: Partial<BodyProps>, origin?: StoreOrigin) {
 			data.bodies[uuid] = sanitizeBodyProps({ ...data.bodies[uuid], ...patch })
+			emit({ kind: 'bodies', origin, uuids: [uuid] })
 		},
 		listConstraints(): ConstraintData[] {
 			return data.constraints.map(c => ({ ...c }))
@@ -302,22 +324,25 @@ export function createStore(): PhysicsStore {
 			const c = data.constraints.find(c => c.id === id)
 			return c ? { ...c } : null
 		},
-		upsertConstraint(constraint: ConstraintData): string {
+		upsertConstraint(constraint: ConstraintData, origin?: StoreOrigin): string {
 			const clean: ConstraintData = { ...constraint, id: constraint.id || makeId() }
 			const index = data.constraints.findIndex(c => c.id === clean.id)
 			if (index >= 0) data.constraints[index] = clean
 			else data.constraints.push(clean)
+			emit({ kind: 'constraints', origin, uuids: [clean.id] })
 			return clean.id
 		},
-		removeConstraint(id: string) {
+		removeConstraint(id: string, origin?: StoreOrigin) {
 			const index = data.constraints.findIndex(c => c.id === id)
 			if (index >= 0) data.constraints.splice(index, 1)
+			emit({ kind: 'constraints', origin, uuids: [id] })
 		},
 		getSettings(): Settings {
 			return { ...data.settings, gravity: data.settings.gravity.slice() }
 		},
-		setSettings(patch: Partial<Settings>) {
+		setSettings(patch: Partial<Settings>, origin?: StoreOrigin) {
 			data.settings = sanitizeSettings({ ...data.settings, ...patch })
+			emit({ kind: 'settings', origin })
 		},
 		listStates(): PhysicsStateDef[] {
 			return Object.values(data.states ?? {}).map(s => ({
@@ -336,12 +361,18 @@ export function createStore(): PhysicsStore {
 					}
 				: null
 		},
-		upsertState(state: PhysicsStateDef) {
+		upsertState(state: PhysicsStateDef, origin?: StoreOrigin) {
 			const clean = sanitizePhysicsState(state)
-			if (clean && data.states) data.states[clean.name] = clean
+			if (clean && data.states) {
+				data.states[clean.name] = clean
+				emit({ kind: 'states', origin, uuids: [clean.name] })
+			}
 		},
-		removeState(name: string) {
-			if (data.states) delete data.states[name]
+		removeState(name: string, origin?: StoreOrigin) {
+			if (data.states) {
+				delete data.states[name]
+				emit({ kind: 'states', origin, uuids: [name] })
+			}
 		},
 		counts(): StoreCounts {
 			return {
@@ -353,9 +384,12 @@ export function createStore(): PhysicsStore {
 		serialize(): StoreData {
 			return JSON.parse(JSON.stringify(data))
 		},
-		load(raw: unknown) {
+		load(raw: unknown, origin?: StoreOrigin) {
 			data = freshData()
-			if (!raw || typeof raw !== 'object') return
+			if (!raw || typeof raw !== 'object') {
+				emit({ kind: 'load', origin })
+				return
+			}
 			const r = raw as Record<string, unknown>
 			if (r.elements && typeof r.elements === 'object') {
 				for (const [uuid, props] of Object.entries(r.elements as Record<string, unknown>)) {
@@ -385,9 +419,11 @@ export function createStore(): PhysicsStore {
 					if (clean && data.states) data.states[clean.name] = clean
 				}
 			}
+			emit({ kind: 'load', origin })
 		},
-		reset() {
+		reset(origin?: StoreOrigin) {
 			data = freshData()
+			emit({ kind: 'load', origin })
 		},
 		validate(_bodyUuids: string[], _elementUuids: string[]): string[] {
 			const errors: string[] = []
@@ -408,6 +444,10 @@ export function createStore(): PhysicsStore {
 				errors.push('unitsPerMeter must be positive')
 			}
 			return errors
+		},
+		subscribe(listener: StoreListener): () => void {
+			listeners.add(listener)
+			return () => listeners.delete(listener)
 		}
 	}
 	return store

@@ -45,6 +45,13 @@ const EN: Record<string, string> = {
 	'dialog.state_break': 'Constraints broken in this state',
 	'dialog.state_none':
 		'No states yet. A state groups per-body motion overrides plus constraints to break (e.g. ragdoll).',
+	'dialog.state_summary': '%0 bodies, %1 breaks',
+	'dialog.state_new': '+ New state',
+	'dialog.state_delete': 'Delete',
+	'dialog.state_edit': 'Edit state: %0',
+	'dialog.state_save': 'Save',
+	'dialog.state_cancel': 'Cancel',
+	'msg.state_delete_confirm': 'Delete state "%0"?',
 	'msg.state_saved': 'State saved',
 	'msg.state_removed': 'State removed',
 	'panel.isSensor': 'Sensor (no collision response)',
@@ -92,6 +99,28 @@ const EN: Record<string, string> = {
 		'Simulation active — editing is disabled. Press Reset (Tools > Jolt Physics) to edit.',
 	'panel.status': 'Bodies: %0 · Constraints: %1',
 	'panel.speed': '|v|=%0',
+	'panel.revert_default': 'Reset to default',
+	'panel.section_reset': 'Reset section to defaults',
+	'panel.empty_guidance':
+		'Select a group to edit its physics body — or nothing to edit the project-wide physics settings.',
+
+	'tip.motionType':
+		'Static never moves, Kinematic is driven by animation, Dynamic is fully simulated.',
+	'tip.friction': 'Surface grip: 0 = ice, 1 = maximum grip.',
+	'tip.restitution': 'Bounciness: 0 = no bounce, 1 = fully elastic.',
+	'tip.controller': 'Attach a character, vehicle, soft-body or hair controller to this body.',
+	'tip.shape': 'Collision geometry: cubes auto-become boxes, meshes become convex hulls.',
+	'tip.density': 'Mass per cubic meter of the collision volume (kg/m³).',
+	'tip.unitsPerMeter': 'How many Blockbench units equal one physics meter.',
+	'tip.gravity': 'Gravity acceleration in m/s² (world space).',
+	'tip.groundEnabled': 'Spawn an invisible ground plane under the model while simulating.',
+	'tip.breakImpulse': 'Impulse (N·s) at which this joint breaks apart; empty = unbreakable.',
+	'tip.limitsMin': 'Lower motion limit (° or m depending on joint type); empty = free.',
+	'tip.limitsMax': 'Upper motion limit (° or m depending on joint type); empty = free.',
+	'tip.motorState': 'Drive the joint toward a velocity or position target.',
+	'tip.pathPoints': 'Path polyline, one x,y,z per line (model units).',
+	'tip.halfConeAngle': 'Maximum swing angle away from the twist axis (°).',
+	'tip.ratio': 'Transmission ratio between the two connected bodies.',
 
 	'shape.auto': 'Auto',
 	'shape.box': 'Box',
@@ -327,6 +356,13 @@ const ZH: Record<string, string> = {
 	'dialog.state_bodies': '此状态下转为 Dynamic 的体',
 	'dialog.state_break': '此状态下断裂的约束',
 	'dialog.state_none': '还没有状态。状态 = 每体运动覆写编组 + 进入时断裂的约束（如布娃娃）。',
+	'dialog.state_summary': '%0 个刚体 · %1 处断裂',
+	'dialog.state_new': '+ 新建状态',
+	'dialog.state_delete': '删除',
+	'dialog.state_edit': '编辑状态：%0',
+	'dialog.state_save': '保存',
+	'dialog.state_cancel': '取消',
+	'msg.state_delete_confirm': '删除状态"%0"？',
 	'msg.state_saved': '状态已保存',
 	'msg.state_removed': '状态已删除',
 	'panel.motion_quality': '运动质量',
@@ -374,6 +410,26 @@ const ZH: Record<string, string> = {
 	'panel.sim_active': '模拟进行中 — 编辑已禁用。重置（工具 > Jolt Physics）后可编辑。',
 	'panel.status': '刚体：%0 · 约束：%1',
 	'panel.speed': '|v|=%0',
+	'panel.revert_default': '恢复默认值',
+	'panel.section_reset': '重置本节为默认值',
+	'panel.empty_guidance': '选中一个组编辑其物理刚体；不选中时在此调整工程级物理设置。',
+
+	'tip.motionType': '静态：不动；运动学：由动画驱动；动态：完全交给物理模拟。',
+	'tip.friction': '表面摩擦力：0 = 冰面，1 = 最大摩擦。',
+	'tip.restitution': '表面弹性：0 = 不反弹，1 = 完全弹性。',
+	'tip.controller': '为该刚体挂接角色、车辆、软体或毛发控制器。',
+	'tip.shape': '碰撞几何：方块自动转 Box，网格转凸包。',
+	'tip.density': '碰撞体积的密度（kg/m³）。',
+	'tip.unitsPerMeter': '多少模型单位等于物理 1 米。',
+	'tip.gravity': '世界空间重力加速度（m/s²）。',
+	'tip.groundEnabled': '模拟时在模型下方生成隐形地面。',
+	'tip.breakImpulse': '约束断裂的冲量阈值（N·s）；留空 = 不断裂。',
+	'tip.limitsMin': '运动下限（° 或 m，随约束类型）；留空 = 不限。',
+	'tip.limitsMax': '运动上限（° 或 m，随约束类型）；留空 = 不限。',
+	'tip.motorState': '驱动约束达到目标速度或目标位置。',
+	'tip.pathPoints': '路径折线，每行一个 x,y,z（模型单位）。',
+	'tip.halfConeAngle': '相对扭转轴的最大摆动角（°）。',
+	'tip.ratio': '两个连接刚体之间的传动比。',
 
 	'shape.auto': '自动',
 	'shape.box': '方块',
@@ -614,6 +670,9 @@ export function t(key: string, ...vars: (string | number)[]): string {
 // helpers for label tables
 export function shapeLabel(shape: string): string {
 	return t('shape.' + shape)
+}
+export function tip(key: string): string | undefined {
+	return EN['tip.' + key] !== undefined ? t('tip.' + key) : undefined
 }
 export function typeLabel(type: string): string {
 	return t('type.' + type)

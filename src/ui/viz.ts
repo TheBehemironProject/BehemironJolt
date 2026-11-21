@@ -30,7 +30,7 @@ export interface VizDeps {
 
 export interface ConstraintViz {
 	refresh(constraints?: ConstraintData[]): void
-	updateDebug(vectors?: DebugVector[]): void
+	updateDebug(): void
 	dispose(): void
 }
 
@@ -38,8 +38,12 @@ interface DragState {
 	constraintId: string
 	field: string
 	index: number | null
+	/** plane anchor captured at drag start — NEVER updated mid-drag (updating it drifts the plane in depth) */
 	planePoint: Vec3
 	el: SVGGElement
+	/** handle position at drag start, for Escape-restore */
+	origin: Vec3
+	readout: HTMLElement | null
 }
 
 let styleInjected = false
@@ -71,6 +75,12 @@ function injectStyle(): void {
 		.behemiron_jolt_viz .bj-debug line { stroke: var(--color-accent, #7cc4ff); stroke-dasharray: 4 3; opacity: 0.8; }
 		.behemiron_jolt_viz .bj-sensor { fill: none; stroke: var(--color-accent, #7cc4ff); stroke-width: 2; opacity: 0.5; }
 		.behemiron_jolt_viz .bj-sensor.active { fill: var(--color-accent, #7cc4ff); opacity: 1; }
+		.bj-drag-readout {
+			position: absolute; z-index: 10; pointer-events: none;
+			font: 11px/1.2 monospace; padding: 2px 6px; border-radius: 3px;
+			background: var(--color-ui, #222); color: var(--color-text, #eee);
+			border: 1px solid var(--color-accent, #7cc4ff); white-space: nowrap;
+		}
 	`
 	const style = document.createElement('style')
 	style.textContent = css
@@ -183,28 +193,80 @@ export function createViz(deps: VizDeps): ConstraintViz {
 					field: handle.field,
 					index: handle.index,
 					planePoint: handle.position.slice(),
-					el: g
+					origin: handle.position.slice(),
+					el: g,
+					readout: createReadout()
 				}
 				window.addEventListener('pointermove', onDragMove)
 				window.addEventListener('pointerup', onDragEnd, { once: true })
+				window.addEventListener('keydown', onDragKey, true)
 			})
 			root.appendChild(g)
 		}
 	}
 
+	// floating numeric readout following the cursor while a handle is dragged (Godot-style)
+	function createReadout(): HTMLElement | null {
+		const host = activeHost()
+		if (!host) return null
+		const readout = document.createElement('div')
+		readout.className = 'bj-drag-readout'
+		host.append(readout)
+		return readout
+	}
+
+	function updateReadout(clientX: number, clientY: number, world: Vec3): void {
+		if (!drag?.readout || !svg) return
+		const rect = svg.getBoundingClientRect()
+		drag.readout.style.left = clientX - rect.left + 12 + 'px'
+		drag.readout.style.top = clientY - rect.top - 8 + 'px'
+		drag.readout.textContent = world.map(v => (Math.abs(v) < 1e-6 ? 0 : +v.toFixed(2))).join(', ')
+	}
+
+	function dropReadout(): void {
+		drag?.readout?.remove()
+		if (drag) drag.readout = null
+	}
+
+	function endDragListeners(): void {
+		window.removeEventListener('pointermove', onDragMove)
+		window.removeEventListener('keydown', onDragKey, true)
+	}
+
+	function onDragKey(event: KeyboardEvent): void {
+		if (event.key !== 'Escape' || !drag) return
+		event.preventDefault()
+		event.stopPropagation()
+		const el = drag.el
+		const { constraintId, field, origin, index } = drag
+		// restore the handle to its drag-start position: the write merges into the same undo
+		// entry (same mergeKey, same merge window), so one Ctrl+Z reverts the whole drag
+		deps.onMoveHandle?.(constraintId, field, origin, index)
+		el.classList.remove('dragging')
+		drag.readout?.remove()
+		drag = null
+		endDragListeners()
+	}
+
 	function onDragMove(event: PointerEvent): void {
 		if (!drag || !svg || !deps.screenToWorld) return
 		const rect = svg.getBoundingClientRect()
+		// the plane stays anchored at the handle's drag-start position: the handle slides in the
+		// view-parallel plane at its original depth instead of drifting toward/away with the cursor
 		const world = deps.screenToWorld(event.clientX - rect.left, event.clientY - rect.top, drag.planePoint)
 		if (!world) return
-		drag.planePoint = world.slice()
-		deps.onMoveHandle?.(drag.constraintId, drag.field, world, drag.index)
+		const snapped: Vec3 = event.shiftKey
+			? [Math.round(world[0]), Math.round(world[1]), Math.round(world[2])]
+			: world
+		updateReadout(event.clientX, event.clientY, snapped)
+		deps.onMoveHandle?.(drag.constraintId, drag.field, snapped, drag.index)
 	}
 
 	function onDragEnd(): void {
 		drag?.el.classList.remove('dragging')
+		drag?.readout?.remove()
 		drag = null
-		window.removeEventListener('pointermove', onDragMove)
+		endDragListeners()
 	}
 
 	function redrawDebug(): void {
@@ -357,6 +419,8 @@ export function createViz(deps: VizDeps): ConstraintViz {
 			offCamera()
 			offSelect()
 			window.removeEventListener('pointermove', onDragMove)
+			window.removeEventListener('keydown', onDragKey, true)
+			dropReadout()
 			if (resizeObserver) {
 				resizeObserver.disconnect()
 				resizeObserver = null

@@ -168,57 +168,62 @@ export class SimSession {
 		this._installContactListener()
 	}
 
+	// Two-phase shape cooking: _buildShapeSettings composes the live settings tree bottom-up
+	// (StaticCompound/RotatedTranslated take ownership of their child settings — Jolt deletes them
+	// with the parent), and only the top-level settings is cooked via Create(). Cooking a child
+	// inside the recursion and destroying its settings left the parent with a dangling inner
+	// pointer: use-after-free that Chromium flags as "null function" on the virtual Create() call.
 	private _cookShape(node: ShapeNode): any {
+		const label = `${node.type}ShapeSettings`
+		const settings = this._new(label, () => this._buildShapeSettings(node))
+		const result = settings.Create()
+		const shape = result.Get()
+		shape.AddRef()
+		try {
+			result.Clear()
+		} catch {
+			/* optional */
+		}
+		this._destroy(settings, label)
+		return shape
+	}
+
+	private _buildShapeSettings(node: ShapeNode): any {
 		const J = this.Jolt as Dyn
 		let settings: any = null
-		let label = `${node.type}ShapeSettings`
 		switch (node.type) {
 			case 'Box': {
 				const he = this._vec3(node.halfExtents)
-				settings = this._new(label, () => new J.BoxShapeSettings(he, node.convexRadius ?? 0.05))
+				settings = new J.BoxShapeSettings(he, node.convexRadius ?? 0.05)
 				this._destroy(he, 'Vec3')
 				break
 			}
 			case 'Sphere':
-				settings = this._new(label, () => new J.SphereShapeSettings(node.radius))
+				settings = new J.SphereShapeSettings(node.radius)
 				break
 			case 'Capsule':
-				settings = this._new(
-					label,
-					() => new J.CapsuleShapeSettings(node.halfHeightOfCylinder, node.radius)
-				)
+				settings = new J.CapsuleShapeSettings(node.halfHeightOfCylinder, node.radius)
 				break
 			case 'Cylinder':
-				settings = this._new(
-					label,
-					() => new J.CylinderShapeSettings(node.halfHeight, node.radius, node.convexRadius ?? 0.05)
-				)
+				settings = new J.CylinderShapeSettings(node.halfHeight, node.radius, node.convexRadius ?? 0.05)
 				break
 			case 'TaperedCapsule':
-				settings = this._new(
-					label,
-					() =>
-						new J.TaperedCapsuleShapeSettings(
-							node.halfHeightOfCylinder,
-							node.topRadius,
-							node.bottomRadius
-						)
+				settings = new J.TaperedCapsuleShapeSettings(
+					node.halfHeightOfCylinder,
+					node.topRadius,
+					node.bottomRadius
 				)
 				break
 			case 'TaperedCylinder':
-				settings = this._new(
-					label,
-					() =>
-						new J.TaperedCylinderShapeSettings(
-							node.halfHeight,
-							node.topRadius,
-							node.bottomRadius,
-							node.convexRadius ?? 0.05
-						)
+				settings = new J.TaperedCylinderShapeSettings(
+					node.halfHeight,
+					node.topRadius,
+					node.bottomRadius,
+					node.convexRadius ?? 0.05
 				)
 				break
 			case 'ConvexHull': {
-				settings = this._new(label, () => new J.ConvexHullShapeSettings())
+				settings = new J.ConvexHullShapeSettings()
 				for (const p of node.points) {
 					const v = this._vec3(p)
 					settings.mPoints.push_back(v)
@@ -242,10 +247,7 @@ export class SimSession {
 				const materialList = this._new('PhysicsMaterialList', () => new J.PhysicsMaterialList())
 				const defaultMaterial = this._new('PhysicsMaterial', () => new J.PhysicsMaterial())
 				materialList.push_back(defaultMaterial)
-				settings = this._new(
-					label,
-					() => new J.MeshShapeSettings(vertexList, triangleList, materialList)
-				)
+				settings = new J.MeshShapeSettings(vertexList, triangleList, materialList)
 				// refcount discipline: `new` starts at 0; the list and the settings AddRef'd the
 				// material (now 2). Destroying the list releases its ref (→1, owned by settings);
 				// the material itself must NOT be destroyed here — the cooked shape keeps the last ref.
@@ -256,25 +258,26 @@ export class SimSession {
 				break
 			}
 			case 'StaticCompound': {
-				settings = this._new(label, () => new J.StaticCompoundShapeSettings())
+				settings = new J.StaticCompoundShapeSettings()
 				for (const child of node.children) {
 					const pos = this._vec3(child.position)
 					const rot = this._quat(child.rotation)
-					const childSettings = this._cookShape(child as ShapeNode)
+					const childSettings = this._buildShapeSettings(child as ShapeNode)
 					settings.AddShape(pos, rot, childSettings)
 					this._destroy(pos, 'Vec3')
 					this._destroy(rot, 'Quat')
-					// childSettings ownership transferred to the compound
+					// childSettings ownership transferred to the compound (deleted with it)
 				}
 				break
 			}
 			case 'RotatedTranslated': {
 				const pos = this._vec3(node.position)
 				const rot = this._quat(node.rotation)
-				const inner = this._cookShape(node.inner)
-				settings = this._new(label, () => new J.RotatedTranslatedShapeSettings(pos, rot, inner))
+				const inner = this._buildShapeSettings(node.inner)
+				settings = new J.RotatedTranslatedShapeSettings(pos, rot, inner)
 				this._destroy(pos, 'Vec3')
 				this._destroy(rot, 'Quat')
+				// inner settings ownership transferred to the wrapper (deleted with it)
 				break
 			}
 			default:
@@ -288,16 +291,7 @@ export class SimSession {
 				/* non-convex */
 			}
 		}
-		const result = settings.Create()
-		const shape = result.Get()
-		shape.AddRef()
-		try {
-			result.Clear()
-		} catch {
-			/* optional */
-		}
-		this._destroy(settings, label)
-		return shape
+		return settings
 	}
 
 	private _createBodies(): void {

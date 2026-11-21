@@ -1,4 +1,4 @@
-// Physics → animation baking: pure helpers. Performance contract (PLAN §5):
+// Physics → animation baking: pure helpers. Performance contract:
 // sampling writes into preallocated Float64Arrays (zero per-sample allocation),
 // chunking/cancellation live in ui/bake_dialog.ts (time-sliced, <40ms per slice).
 
