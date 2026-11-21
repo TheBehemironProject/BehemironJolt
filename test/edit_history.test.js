@@ -54,6 +54,9 @@ function makeFakeBB() {
 			const entry = bb.history[bb.index]
 			bb.index++
 			for (const cb of listeners.redo) cb({ entry })
+		},
+		position() {
+			return bb.index
 		}
 	}
 	return bb
@@ -105,6 +108,39 @@ test('edit history: different mergeKeys do not merge', () => {
 	history.push('friction', 'g1:friction', () => store.setBodyProps('g1', { friction: 0.3 }, 'ui'))
 	history.push('restitution', 'g1:restitution', () => store.setBodyProps('g1', { restitution: 0.5 }, 'ui'))
 	assert.equal(bb.history.length, 2)
+	history.dispose()
+})
+
+test('edit history: a native edit between pushes blocks the merge', () => {
+	const store = createStore()
+	const bb = makeFakeBB()
+	const history = createEditHistory(store, bb)
+	const write = v => () => store.setBodyProps('g1', { friction: v }, 'ui')
+	history.push('friction', 'g1:friction', write(0.3))
+	// native Blockbench edit lands on the stack (our history never saw it)
+	bb.initEdit()
+	bb.finishEdit('native mesh edit')
+	history.push('friction', 'g1:friction', write(0.6))
+	assert.equal(bb.history.length, 3, 'merge refused: the previous entry is no longer the stack top')
+	bb.undo()
+	assert.equal(store.getBodyProps('g1').friction, 0.3, 'our second entry undoes to its own before-state')
+	bb.undo()
+	assert.equal(store.getBodyProps('g1').friction, 0.3, 'native entry is a no-op for physics data')
+	bb.undo()
+	assert.equal(store.getBodyProps('g1').friction, 0.2, 'then the original value comes back')
+	history.dispose()
+})
+
+test('edit history: an undo between pushes blocks the merge', () => {
+	const store = createStore()
+	const bb = makeFakeBB()
+	const history = createEditHistory(store, bb)
+	const write = v => () => store.setBodyProps('g1', { friction: v }, 'ui')
+	history.push('friction', 'g1:friction', write(0.3))
+	bb.undo()
+	history.push('friction', 'g1:friction', write(0.8))
+	assert.equal(bb.history.length, 2, 'the undo moved the stack; the new push must be its own entry')
+	assert.equal(store.getBodyProps('g1').friction, 0.8)
 	history.dispose()
 })
 

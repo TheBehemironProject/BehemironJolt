@@ -310,6 +310,7 @@
     let lastMergeKey = null;
     let lastMergeTime = 0;
     let lastEntry = null;
+    let lastEntryIndex = -1;
     let applying = false;
     function applySnapshot(snap) {
       if (!snap) return;
@@ -335,7 +336,8 @@
           return;
         }
         const now = Date.now();
-        if (mergeKey && lastEntry && mergeKey === lastMergeKey && now - lastMergeTime < MERGE_WINDOW) {
+        const stackUnmoved = !bb.position || bb.position() === lastEntryIndex;
+        if (mergeKey && lastEntry && stackUnmoved && mergeKey === lastMergeKey && now - lastMergeTime < MERGE_WINDOW) {
           write();
           const snap = snapshots.get(lastEntry);
           if (snap) snap.after = store2.serialize();
@@ -350,6 +352,7 @@
         lastEntry = entry;
         lastMergeKey = mergeKey;
         lastMergeTime = now;
+        lastEntryIndex = bb.position ? bb.position() : -1;
       },
       skip(write) {
         write();
@@ -3633,6 +3636,53 @@
     "tip.pathPoints": "Path polyline, one x,y,z per line (model units).",
     "tip.halfConeAngle": "Maximum swing angle away from the twist axis (\xB0).",
     "tip.ratio": "Transmission ratio between the two connected bodies.",
+    "tip.param.up": "World-up direction of the character capsule.",
+    "tip.param.radius": "Capsule radius (m).",
+    "tip.param.height": "Total character height (m).",
+    "tip.param.mass": "Character mass (kg).",
+    "tip.param.maxSlopeAngle": "Steepest walkable slope (\xB0).",
+    "tip.param.maxStrength": "Maximum push-out force against obstacles.",
+    "tip.param.characterPadding": "Extra collision padding around the capsule (m).",
+    "tip.param.maxSeparationDistance": "Allowed hover gap before the character is pulled down (m).",
+    "tip.param.jumpSpeed": "Initial vertical speed of a jump (m/s).",
+    "tip.param.maxTorque": "Engine torque limit.",
+    "tip.param.minRPM": "Idle engine speed (RPM).",
+    "tip.param.maxRPM": "Rev limiter (RPM).",
+    "tip.param.inertia": "Engine inertia.",
+    "tip.param.angularDamping": "Engine angular damping.",
+    "tip.param.clutchStrength": "Clutch coupling strength.",
+    "tip.param.gearCount": "Number of forward gears.",
+    "tip.param.gearSwitchTime": "Seconds per gear shift.",
+    "tip.param.maxSteeringAngle": "Front-wheel steering range (\xB0).",
+    "tip.param.wheelRadius": "Wheel radius (m).",
+    "tip.param.wheelWidth": "Wheel width (m).",
+    "tip.param.maxWheelTorque": "Torque applied per driven wheel.",
+    "tip.param.suspensionMinLength": "Fully compressed suspension length (m).",
+    "tip.param.suspensionMaxLength": "Fully extended suspension length (m).",
+    "tip.param.suspensionSpringFrequency": "Suspension spring frequency (Hz).",
+    "tip.param.suspensionSpringDamping": "Suspension damping ratio.",
+    "tip.param.brakeTorque": "Service brake torque.",
+    "tip.param.handBrakeTorque": "Hand-brake torque.",
+    "tip.param.wheelFriction": "Tire friction coefficient.",
+    "tip.param.edgeCompliance": "Edge-constraint softness (higher = stretchier).",
+    "tip.param.bendType": "Bend-constraint mode.",
+    "tip.param.bendCompliance": "Bend softness.",
+    "tip.param.volumeCompliance": "Volume-preservation softness.",
+    "tip.param.useVolumeConstraints": "Keep the soft body volume during deformation.",
+    "tip.param.linearDamping": "Motion damping.",
+    "tip.param.pressure": "Internal pressure of the soft body.",
+    "tip.param.vertexMass": "Mass of each soft-body vertex (kg).",
+    "tip.param.strandCount": "Number of generated hair strands.",
+    "tip.param.segmentsPerStrand": "Vertices per strand.",
+    "tip.param.strandLength": "Strand length (m).",
+    "tip.param.rootRadius": "Radius of the scalp attachment ring (m).",
+    "tip.param.rootInvMass": "Inverse mass of root vertices (0 = pinned roots).",
+    "tip.param.iterationsPerSecond": "Solver iterations per simulated second.",
+    "tip.param.friction": "Strand-to-body friction.",
+    "tip.param.enableLRA": "Long-range attachment constraints (keeps strands from stretching).",
+    "tip.param.enableCollision": "Strands collide with bodies.",
+    "tip.param.gravityFactorMin": "Gravity scale at the strand root.",
+    "tip.param.gravityFactorMax": "Gravity scale at the strand tip.",
     "shape.auto": "Auto",
     "shape.box": "Box",
     "shape.sphere": "Sphere",
@@ -3930,6 +3980,53 @@
     "tip.pathPoints": "\u8DEF\u5F84\u6298\u7EBF\uFF0C\u6BCF\u884C\u4E00\u4E2A x,y,z\uFF08\u6A21\u578B\u5355\u4F4D\uFF09\u3002",
     "tip.halfConeAngle": "\u76F8\u5BF9\u626D\u8F6C\u8F74\u7684\u6700\u5927\u6446\u52A8\u89D2\uFF08\xB0\uFF09\u3002",
     "tip.ratio": "\u4E24\u4E2A\u8FDE\u63A5\u521A\u4F53\u4E4B\u95F4\u7684\u4F20\u52A8\u6BD4\u3002",
+    "tip.param.up": "\u89D2\u8272\u80F6\u56CA\u4F53\u7684\u4E16\u754C\u4E0A\u65B9\u5411\u3002",
+    "tip.param.radius": "\u80F6\u56CA\u4F53\u534A\u5F84\uFF08m\uFF09\u3002",
+    "tip.param.height": "\u89D2\u8272\u603B\u8EAB\u9AD8\uFF08m\uFF09\u3002",
+    "tip.param.mass": "\u89D2\u8272\u8D28\u91CF\uFF08kg\uFF09\u3002",
+    "tip.param.maxSlopeAngle": "\u53EF\u7AD9\u7ACB\u7684\u6700\u9661\u5761\u5EA6\uFF08\xB0\uFF09\u3002",
+    "tip.param.maxStrength": "\u63A8\u79BB\u969C\u788D\u7269\u7684\u6700\u5927\u529B\u3002",
+    "tip.param.characterPadding": "\u80F6\u56CA\u4F53\u5916\u989D\u5916\u7684\u78B0\u649E\u95F4\u9699\uFF08m\uFF09\u3002",
+    "tip.param.maxSeparationDistance": "\u5141\u8BB8\u60AC\u7A7A\u7684\u6700\u5927\u95F4\u9699\uFF08m\uFF09\uFF0C\u8D85\u8FC7\u4F1A\u88AB\u62C9\u4E0B\u3002",
+    "tip.param.jumpSpeed": "\u8D77\u8DF3\u521D\u901F\u5EA6\uFF08m/s\uFF09\u3002",
+    "tip.param.maxTorque": "\u53D1\u52A8\u673A\u626D\u77E9\u4E0A\u9650\u3002",
+    "tip.param.minRPM": "\u6020\u901F\u8F6C\u901F\uFF08RPM\uFF09\u3002",
+    "tip.param.maxRPM": "\u65AD\u6CB9\u8F6C\u901F\uFF08RPM\uFF09\u3002",
+    "tip.param.inertia": "\u53D1\u52A8\u673A\u8F6C\u52A8\u60EF\u91CF\u3002",
+    "tip.param.angularDamping": "\u53D1\u52A8\u673A\u89D2\u963B\u5C3C\u3002",
+    "tip.param.clutchStrength": "\u79BB\u5408\u5668\u7ED3\u5408\u5F3A\u5EA6\u3002",
+    "tip.param.gearCount": "\u524D\u8FDB\u6863\u4F4D\u6570\u3002",
+    "tip.param.gearSwitchTime": "\u6BCF\u6B21\u6362\u6321\u8017\u65F6\uFF08\u79D2\uFF09\u3002",
+    "tip.param.maxSteeringAngle": "\u524D\u8F6E\u6700\u5927\u8F6C\u5411\u89D2\uFF08\xB0\uFF09\u3002",
+    "tip.param.wheelRadius": "\u8F66\u8F6E\u534A\u5F84\uFF08m\uFF09\u3002",
+    "tip.param.wheelWidth": "\u8F66\u8F6E\u5BBD\u5EA6\uFF08m\uFF09\u3002",
+    "tip.param.maxWheelTorque": "\u6BCF\u4E2A\u9A71\u52A8\u8F6E\u7684\u626D\u77E9\u4E0A\u9650\u3002",
+    "tip.param.suspensionMinLength": "\u60AC\u6302\u5B8C\u5168\u538B\u7F29\u957F\u5EA6\uFF08m\uFF09\u3002",
+    "tip.param.suspensionMaxLength": "\u60AC\u6302\u5B8C\u5168\u4F38\u5C55\u957F\u5EA6\uFF08m\uFF09\u3002",
+    "tip.param.suspensionSpringFrequency": "\u60AC\u6302\u5F39\u7C27\u9891\u7387\uFF08Hz\uFF09\u3002",
+    "tip.param.suspensionSpringDamping": "\u60AC\u6302\u963B\u5C3C\u6BD4\u3002",
+    "tip.param.brakeTorque": "\u884C\u8F66\u5236\u52A8\u626D\u77E9\u3002",
+    "tip.param.handBrakeTorque": "\u624B\u5239\u626D\u77E9\u3002",
+    "tip.param.wheelFriction": "\u8F6E\u80CE\u6469\u64E6\u7CFB\u6570\u3002",
+    "tip.param.edgeCompliance": "\u8FB9\u7F18\u7EA6\u675F\u67D4\u5EA6\uFF08\u8D8A\u5927\u8D8A\u8F6F\uFF09\u3002",
+    "tip.param.bendType": "\u5F2F\u66F2\u7EA6\u675F\u7684\u6A21\u5F0F\u3002",
+    "tip.param.bendCompliance": "\u5F2F\u66F2\u67D4\u5EA6\u3002",
+    "tip.param.volumeCompliance": "\u4F53\u79EF\u4FDD\u6301\u67D4\u5EA6\u3002",
+    "tip.param.useVolumeConstraints": "\u53D8\u5F62\u65F6\u4FDD\u6301\u8F6F\u4F53\u4F53\u79EF\u3002",
+    "tip.param.linearDamping": "\u8FD0\u52A8\u963B\u5C3C\u3002",
+    "tip.param.pressure": "\u8F6F\u4F53\u5185\u90E8\u538B\u529B\u3002",
+    "tip.param.vertexMass": "\u6BCF\u4E2A\u8F6F\u4F53\u9876\u70B9\u7684\u8D28\u91CF\uFF08kg\uFF09\u3002",
+    "tip.param.strandCount": "\u751F\u6210\u7684\u53D1\u675F\u6570\u91CF\u3002",
+    "tip.param.segmentsPerStrand": "\u6BCF\u675F\u7684\u53D1\u6BB5\u6570\u3002",
+    "tip.param.strandLength": "\u53D1\u675F\u957F\u5EA6\uFF08m\uFF09\u3002",
+    "tip.param.rootRadius": "\u53D1\u6839\u9644\u7740\u5706\u73AF\u534A\u5F84\uFF08m\uFF09\u3002",
+    "tip.param.rootInvMass": "\u6839\u90E8\u9876\u70B9\u7684\u9006\u8D28\u91CF\uFF080 = \u56FA\u5B9A\u53D1\u6839\uFF09\u3002",
+    "tip.param.iterationsPerSecond": "\u6BCF\u79D2\u6C42\u89E3\u8FED\u4EE3\u6B21\u6570\u3002",
+    "tip.param.friction": "\u53D1\u4E1D\u4E0E\u521A\u4F53\u7684\u6469\u64E6\u3002",
+    "tip.param.enableLRA": "\u957F\u8DDD\u79BB\u9644\u7740\u7EA6\u675F\uFF08\u9632\u6B62\u53D1\u4E1D\u88AB\u62C9\u957F\uFF09\u3002",
+    "tip.param.enableCollision": "\u53D1\u4E1D\u4E0E\u521A\u4F53\u78B0\u649E\u3002",
+    "tip.param.gravityFactorMin": "\u53D1\u6839\u5904\u7684\u91CD\u529B\u7F29\u653E\u3002",
+    "tip.param.gravityFactorMax": "\u53D1\u68A2\u5904\u7684\u91CD\u529B\u7F29\u653E\u3002",
     "shape.auto": "\u81EA\u52A8",
     "shape.box": "\u65B9\u5757",
     "shape.sphere": "\u7403\u4F53",
@@ -5933,6 +6030,7 @@
       const labelKey = "param." + p.key;
       const translated = t(labelKey);
       const label = translated === labelKey ? humanize(p.key) : translated;
+      const description = tip(labelKey);
       sectionOf.set(p.key, currentSection ?? null);
       orderedKeys.push(p.key);
       if (Array.isArray(p.def)) {
@@ -5940,14 +6038,16 @@
           type: "vector",
           dimensions: 3,
           label,
+          description,
           value: current[p.key].slice()
         };
       } else if (typeof p.def === "boolean") {
-        form[p.key] = { type: "checkbox", label, value: current[p.key] === true };
+        form[p.key] = { type: "checkbox", label, description, value: current[p.key] === true };
       } else if (typeof p.def === "string") {
         form[p.key] = {
           type: "select",
           label,
+          description,
           options: Object.fromEntries(["None", "Distance", "Dihedral"].map((v) => [v, t("bend." + v)])),
           value: current[p.key]
         };
@@ -5956,6 +6056,7 @@
         form[p.key] = {
           type: "number",
           label: label + unit,
+          description,
           value: current[p.key],
           min: p.min,
           max: p.max,
@@ -6793,6 +6894,9 @@
       history = createEditHistory(store, {
         initEdit: (aspects) => bbGlobal7("Undo").initEdit(aspects),
         finishEdit: (message, aspects) => bbGlobal7("Undo").finishEdit(message, aspects),
+        // Undo.index moves on every committed edit (ours or native) and on undo/redo —
+        // the history refuses to extend a merge once the stack position changed
+        position: () => bbGlobal7("Undo")?.index ?? 0,
         addListener: (name, cb) => onEvent(name, cb),
         removeListener: (name, cb) => Blockbench.removeListener(name, cb)
       });

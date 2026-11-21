@@ -11,6 +11,12 @@ export interface EditHistoryBB {
 	finishEdit(message: string, aspects: Record<string, never>): unknown
 	addListener(name: 'undo' | 'redo', cb: (data: { entry: unknown }) => void): void
 	removeListener(name: 'undo' | 'redo', cb: (data: { entry: unknown }) => void): void
+	/**
+	 * Current Blockbench undo-stack position (Undo.index). When present, merging is
+	 * refused once the stack moved (a native edit landed, or an undo/redo happened) —
+	 * extending a buried entry would put its undo out of order.
+	 */
+	position?(): number
 }
 
 export interface EditChannel {
@@ -38,6 +44,7 @@ export function createEditHistory(store: PhysicsStore, bb: EditHistoryBB): EditH
 	let lastMergeKey: string | null = null
 	let lastMergeTime = 0
 	let lastEntry: unknown = null
+	let lastEntryIndex = -1
 	let applying = false
 
 	function applySnapshot(snap: StoreData | undefined): void {
@@ -66,9 +73,11 @@ export function createEditHistory(store: PhysicsStore, bb: EditHistoryBB): EditH
 				return
 			}
 			const now = Date.now()
+			const stackUnmoved = !bb.position || bb.position() === lastEntryIndex
 			if (
 				mergeKey &&
 				lastEntry &&
+				stackUnmoved &&
 				mergeKey === lastMergeKey &&
 				now - lastMergeTime < MERGE_WINDOW
 			) {
@@ -87,6 +96,7 @@ export function createEditHistory(store: PhysicsStore, bb: EditHistoryBB): EditH
 			lastEntry = entry
 			lastMergeKey = mergeKey
 			lastMergeTime = now
+			lastEntryIndex = bb.position ? bb.position() : -1
 		},
 		skip(write: () => void): void {
 			write()

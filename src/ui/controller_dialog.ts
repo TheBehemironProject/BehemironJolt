@@ -12,7 +12,7 @@ import {
 } from '../core/controllers.ts'
 import type { PhysicsStore } from '../core/store.ts'
 import type { EditChannel } from '../core/edit_history.ts'
-import { t } from './i18n.ts'
+import { t, tip } from './i18n.ts'
 import { injectDialogStyles, enhanceDialogDom } from './constraint_dialog.ts'
 
 type AnyBB = any
@@ -69,6 +69,7 @@ export function openControllerDialog(ctx: ControllerDialogCtx): void {
 		const labelKey = 'param.' + p.key
 		const translated = t(labelKey)
 		const label = translated === labelKey ? humanize(p.key) : translated
+		const description = tip(labelKey)
 		sectionOf.set(p.key, currentSection ?? null)
 		orderedKeys.push(p.key)
 		if (Array.isArray(p.def)) {
@@ -76,14 +77,16 @@ export function openControllerDialog(ctx: ControllerDialogCtx): void {
 				type: 'vector',
 				dimensions: 3,
 				label,
+				description,
 				value: (current[p.key] as number[]).slice()
 			}
 		} else if (typeof p.def === 'boolean') {
-			form[p.key] = { type: 'checkbox', label, value: current[p.key] === true }
+			form[p.key] = { type: 'checkbox', label, description, value: current[p.key] === true }
 		} else if (typeof p.def === 'string') {
 			form[p.key] = {
 				type: 'select',
 				label,
+				description,
 				options: Object.fromEntries(['None', 'Distance', 'Dihedral'].map(v => [v, t('bend.' + v)])),
 				value: current[p.key] as string
 			}
@@ -92,6 +95,7 @@ export function openControllerDialog(ctx: ControllerDialogCtx): void {
 			form[p.key] = {
 				type: 'number',
 				label: label + unit,
+				description,
 				value: current[p.key] as number,
 				min: p.min,
 				max: p.max,

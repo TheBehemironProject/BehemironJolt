@@ -592,6 +592,9 @@ PluginRegister.register('behemiron_jolt', {
 		history = createEditHistory(store, {
 			initEdit: aspects => bbGlobal('Undo').initEdit(aspects),
 			finishEdit: (message, aspects) => bbGlobal('Undo').finishEdit(message, aspects),
+			// Undo.index moves on every committed edit (ours or native) and on undo/redo —
+			// the history refuses to extend a merge once the stack position changed
+			position: () => (bbGlobal('Undo')?.index as number) ?? 0,
 			addListener: (name, cb) => adapter.onEvent(name, cb),
 			removeListener: (name, cb) => Blockbench.removeListener(name, cb)
 		})

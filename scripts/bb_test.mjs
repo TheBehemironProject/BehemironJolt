@@ -124,7 +124,7 @@ if (scenario.startsWith('ok')) {
 		if (g.selectThis) { g.selectThis() } else if (g.select) { g.select() }
 		Outliner.selected = [g]
 		Blockbench.dispatchEvent('update_selection')
-		await new Promise(r => setTimeout(r, 150))
+		await new Promise(r => setTimeout(r, 250))
 		const labels = [...document.querySelectorAll('#panel_behemiron_jolt label')].map(l => l.textContent)
 		const hOverflow = [...document.querySelectorAll('#panel_behemiron_jolt .form_bar')].filter(bar => bar.scrollWidth > bar.clientWidth + 1).length
 		const panelEl = document.querySelector('#panel_behemiron_jolt')
@@ -148,7 +148,7 @@ if (scenario.startsWith('ok')) {
 			return { h, v }
 		}
 		const select = nodes => { Outliner.selected = nodes; Blockbench.dispatchEvent('update_selection') }
-		const wait = () => new Promise(r => setTimeout(r, 150))
+		const wait = () => new Promise(r => setTimeout(r, 250))
 		const out = {}
 		// two-group case
 		const g2 = new Group({ name: 'body2' }); g2.init(); g2.addTo()
@@ -176,7 +176,7 @@ if (scenario.startsWith('ok')) {
 		const g = Group.all.find(g => g.name === 'body1') || Group.all[0]
 		g.select()
 		Blockbench.dispatchEvent('update_selection')
-		await new Promise(r => setTimeout(r, 150))
+		await new Promise(r => setTimeout(r, 250))
 		const form = Panels.behemiron_jolt.form
 		const cfgBefore = Object.keys(form.form_config)
 		if (!cfgBefore.includes('controller')) return 'error: body view has no controller field: ' + cfgBefore.join(',')
@@ -185,7 +185,7 @@ if (scenario.startsWith('ok')) {
 		const widget = document.querySelector('#panel_behemiron_jolt .form_bar_controller .bb-select')
 		if (!widget) return 'error: no controller widget'
 		widget.click()
-		await new Promise(r => setTimeout(r, 150))
+		await new Promise(r => setTimeout(r, 250))
 		const menus = document.querySelectorAll('ul.contextMenu')
 		const items = [...document.querySelectorAll('ul.contextMenu li')]
 		const item = items.find(li => /Character|角色/.test(li.textContent))
@@ -210,15 +210,15 @@ if (scenario.startsWith('ok')) {
 		const g2 = Group.all.find(g => g.name === 'body2') || Group.all[1]
 		g1.select(); g2.multiSelect()
 		Blockbench.dispatchEvent('update_selection')
-		await new Promise(r => setTimeout(r, 150))
+		await new Promise(r => setTimeout(r, 250))
 		const dual = Object.keys(Panels.behemiron_jolt.form.form_config)
 		const dualOk = dual.includes('g1.motionType') && dual.includes('g2.motionType')
 		BarItems.behemiron_jolt_new_constraint.trigger()
-		await new Promise(r => setTimeout(r, 150))
+		await new Promise(r => setTimeout(r, 250))
 		if (!document.getElementById('behemiron_jolt_constraint_type')) return JSON.stringify({ dualOk, error: 'wizard missing' })
 		Dialog.open.setFormValues({ type: 'Hinge' })
 		Dialog.open.confirm()
-		await new Promise(r => setTimeout(r, 150))
+		await new Promise(r => setTimeout(r, 250))
 		const editDlg = document.getElementById('behemiron_jolt_constraint_edit')
 		if (!editDlg) return JSON.stringify({ dualOk, error: 'editor missing' })
 		// section headers are collapsible and fields carry hover tooltips
@@ -251,11 +251,11 @@ if (scenario.startsWith('ok')) {
 		const g = Group.all.find(g => g.name === 'body1') || Group.all[0]
 		g.select()
 		Blockbench.dispatchEvent('update_selection')
-		await new Promise(r => setTimeout(r, 150))
+		await new Promise(r => setTimeout(r, 250))
 		// change motionType through the real widget path (dropdown menu click)
 		const widget = document.querySelector('#panel_behemiron_jolt .form_bar_motionType .bb-select')
 		widget.click()
-		await new Promise(r => setTimeout(r, 150))
+		await new Promise(r => setTimeout(r, 250))
 		const items = [...document.querySelectorAll('ul.contextMenu li')]
 		const item = items.find(li => /Static|静态/.test(li.textContent))
 		if (!item) return 'error: no Static menu item'
@@ -321,17 +321,17 @@ if (scenario.startsWith('ok')) {
 		const g = Group.all.find(g => g.name === 'body1') || Group.all[0]
 		g.select()
 		Blockbench.dispatchEvent('update_selection')
-		await new Promise(r => setTimeout(r, 150))
+		await new Promise(r => setTimeout(r, 250))
 		const cfg = Panels.behemiron_jolt.form.form_config
 		if (!cfg.actionButtons) return 'error: no action buttons in body view'
 		cfg.actionButtons.click(2) // "Physics States"
-		await new Promise(r => setTimeout(r, 150))
+		await new Promise(r => setTimeout(r, 250))
 		const dlg = document.getElementById('behemiron_jolt_states')
 		if (!dlg) return 'error: states dialog missing'
 		const plus = dlg.querySelector('.form_bar__new button')
 		if (!plus) return 'error: no new-state button'
 		plus.click()
-		await new Promise(r => setTimeout(r, 150))
+		await new Promise(r => setTimeout(r, 250))
 		// editor opened INLINE in the same dialog (no second modal)
 		const inlineEditor = !!dlg.querySelector('input[id="name"]')
 		const values = { name: 'ragdoll' }
